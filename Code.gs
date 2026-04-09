@@ -77,10 +77,9 @@ function summarizeWithHaiku(text) {
 
   try {
     var response = callAnthropicApi(payload, settings.apiKey);
-    var textBlocks = response.content.filter(function(b) { return b.type === 'text'; });
-    var lastBlock = textBlocks.pop();
-    if (lastBlock && lastBlock.text) {
-      return lastBlock.text;
+    var textBlocks = response.content.filter(function(b) { return b.type === 'text' && b.text; });
+    if (textBlocks.length > 0) {
+      return textBlocks.map(function(b) { return b.text; }).join('\n\n');
     }
   } catch (e) {
     Logger.log('summarizeWithHaiku error: ' + e.message);
@@ -350,14 +349,13 @@ function processInvocation(commentId, replyId) {
 
   var response = callAnthropicApi(payload, settings.apiKey);
 
-  var textBlocks = response.content.filter(function(b) { return b.type === 'text'; });
-  var lastTextBlock = textBlocks.pop();
+  var textBlocks = response.content.filter(function(b) { return b.type === 'text' && b.text; });
 
-  if (!lastTextBlock || !lastTextBlock.text) {
+  if (textBlocks.length === 0) {
     throw new Error('No text content in Anthropic response.');
   }
 
-  var replyText = lastTextBlock.text;
+  var replyText = textBlocks.map(function(b) { return b.text; }).join('\n\n');
 
   var posted = Drive.Replies.create(
     { content: replyText },
