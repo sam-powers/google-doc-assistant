@@ -146,6 +146,25 @@
       text-decoration: underline;
     }
 
+    #refresh-btn {
+      font-size: 15px;
+      color: #5f6368;
+      cursor: pointer;
+      background: none;
+      border: none;
+      padding: 0;
+      line-height: 1;
+    }
+
+    #refresh-btn:hover {
+      color: #202124;
+    }
+
+    #refresh-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
     #error-banner {
       display: none;
       margin: 10px 16px;
@@ -360,7 +379,10 @@
   <div id="main-panel">
     <div id="main-header">
       <h1>Claude Assistant</h1>
-      <button id="settings-link">Settings</button>
+      <div style="display:flex;gap:10px;align-items:center;">
+        <button id="refresh-btn">↻</button>
+        <button id="settings-link">Settings</button>
+      </div>
     </div>
 
     <div id="error-banner"></div>
@@ -472,6 +494,13 @@
 
     document.getElementById('settings-link').addEventListener('click', function() {
       showPanel('setup');
+    });
+
+    document.getElementById('refresh-btn').addEventListener('click', function() {
+      var btn = document.getElementById('refresh-btn');
+      btn.disabled = true;
+      loadInvocations();
+      setTimeout(function() { btn.disabled = false; }, 1500);
     });
 
     // ── Load Invocations ─────────────────────────────────────────────────────
