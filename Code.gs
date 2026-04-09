@@ -396,6 +396,22 @@ function processAllInvocations() {
   return { processed: processed, errors: errors };
 }
 
+// ─── API Key Validation ───────────────────────────────────────────────────────
+
+function testApiKey(apiKey) {
+  try {
+    var payload = {
+      model: 'claude-haiku-4-5',
+      max_tokens: 10,
+      messages: [{ role: 'user', content: 'Hi' }]
+    };
+    callAnthropicApi(payload, apiKey);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
 // ─── Test Helpers ─────────────────────────────────────────────────────────────
 
 function testGetPending() {

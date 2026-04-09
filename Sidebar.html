@@ -338,7 +338,11 @@
 
     <div class="form-group">
       <label for="api-key-input">Anthropic API Key</label>
-      <input type="password" id="api-key-input" placeholder="sk-ant-…" autocomplete="off">
+      <div style="display:flex;gap:6px;align-items:center;">
+        <input type="password" id="api-key-input" placeholder="sk-ant-…" autocomplete="off" style="flex:1">
+        <button id="test-api-btn" style="padding:8px 10px;background:#f1f3f4;color:#3c4043;border:1px solid #dadce0;border-radius:4px;font-size:12px;cursor:pointer;white-space:nowrap;">Test</button>
+      </div>
+      <div id="api-test-status" style="font-size:11px;margin-top:4px;min-height:14px;"></div>
       <p class="hint">Get yours at console.anthropic.com</p>
     </div>
 
@@ -403,6 +407,37 @@
     var runningCount = 0;
 
     // ── Setup Panel ──────────────────────────────────────────────────────────
+
+    document.getElementById('test-api-btn').addEventListener('click', function() {
+      var apiKey = document.getElementById('api-key-input').value.trim();
+      var statusEl = document.getElementById('api-test-status');
+      var btn = document.getElementById('test-api-btn');
+      if (!apiKey) {
+        statusEl.style.color = '#c5221f';
+        statusEl.textContent = 'Enter an API key first.';
+        return;
+      }
+      btn.disabled = true;
+      statusEl.style.color = '#5f6368';
+      statusEl.textContent = 'Testing…';
+      google.script.run
+        .withSuccessHandler(function(result) {
+          btn.disabled = false;
+          if (result.ok) {
+            statusEl.style.color = '#188038';
+            statusEl.textContent = '✓ API key is valid';
+          } else {
+            statusEl.style.color = '#c5221f';
+            statusEl.textContent = '✗ ' + result.error;
+          }
+        })
+        .withFailureHandler(function(err) {
+          btn.disabled = false;
+          statusEl.style.color = '#c5221f';
+          statusEl.textContent = '✗ ' + (err.message || String(err));
+        })
+        .testApiKey(apiKey);
+    });
 
     document.getElementById('save-btn').addEventListener('click', function() {
       var apiKey = document.getElementById('api-key-input').value.trim();
