@@ -183,4 +183,10 @@ A typical comment + context + response is a few hundred to a couple thousand tok
 
 ## v2 Roadmap
 
-v1 requires manually opening the sidebar and clicking Run. v2 will add a **Cloudflare Worker** that receives **Google Drive push notifications** and automatically invokes the script whenever a new `@claude` comment is posted — no sidebar interaction required.
+### Automatic triggering
+v1 requires manually opening the sidebar and clicking Run. v2 will add a **Cloudflare Worker** that receives **Google Drive push notifications** (via the Drive API watch endpoint) and automatically invokes Claude whenever a new `@claude` comment is posted — no sidebar interaction required.
+
+### Claude's own identity
+In v1, Claude's replies are posted under your Google account because Apps Script authenticates as you. v2 will introduce a **Google Cloud service account** with a dedicated identity (e.g. "Claude Assistant") so replies appear as a distinct participant in the thread rather than coming from you.
+
+The service account pairs naturally with the Cloudflare Worker: the Worker holds the service account credentials and uses them to post replies via the Drive API — completely outside Apps Script's OAuth constraints. The service account email would also replace the current `claudeEmail` setting used for deduplication.
