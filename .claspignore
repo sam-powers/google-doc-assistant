@@ -1,0 +1,7 @@
+# Ignore files that should not be pushed to Apps Script
+README.md
+*.html.bak
+google_docs_research_agent_brief_v3.html
+.claspignore
+.gitignore
+node_modules/

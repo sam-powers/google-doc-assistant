@@ -1,0 +1,11 @@
+# clasp — generated per-user, contains your scriptId
+.clasp.json
+
+# macOS
+.DS_Store
+
+# Node
+node_modules/
+
+# Misc
+*.bak

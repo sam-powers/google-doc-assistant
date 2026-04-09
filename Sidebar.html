@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <base target="_top">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: Arial, sans-serif;
+      font-size: 13px;
+      color: #202124;
+      background: #fff;
+    }
+
+    /* ── Panels ── */
+    #setup-panel,
+    #main-panel {
+      display: none;
+    }
+
+    #setup-panel.visible,
+    #main-panel.visible {
+      display: block;
+    }
+
+    /* ── Setup Panel ── */
+    #setup-panel {
+      padding: 20px 16px;
+    }
+
+    #setup-panel h2 {
+      font-size: 15px;
+      font-weight: 600;
+      color: #202124;
+      margin-bottom: 4px;
+    }
+
+    #setup-panel p.subtitle {
+      font-size: 12px;
+      color: #5f6368;
+      margin-bottom: 20px;
+      line-height: 1.4;
+    }
+
+    .form-group {
+      margin-bottom: 14px;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: #3c4043;
+      margin-bottom: 5px;
+    }
+
+    .form-group input {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid #dadce0;
+      border-radius: 4px;
+      font-size: 13px;
+      color: #202124;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    .form-group input:focus {
+      border-color: #1a73e8;
+    }
+
+    .form-group .hint {
+      font-size: 11px;
+      color: #5f6368;
+      margin-top: 4px;
+    }
+
+    .btn-primary {
+      display: inline-block;
+      padding: 8px 18px;
+      background: #1a73e8;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .btn-primary:hover {
+      background: #1557b0;
+    }
+
+    .btn-primary:disabled {
+      background: #dadce0;
+      color: #80868b;
+      cursor: not-allowed;
+    }
+
+    #setup-status {
+      margin-top: 10px;
+      font-size: 12px;
+      min-height: 16px;
+    }
+
+    #setup-status.success {
+      color: #188038;
+    }
+
+    #setup-status.error {
+      color: #c5221f;
+    }
+
+    /* ── Main Panel ── */
+    #main-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border-bottom: 1px solid #dadce0;
+    }
+
+    #main-header h1 {
+      font-size: 14px;
+      font-weight: 600;
+      color: #202124;
+    }
+
+    #settings-link {
+      font-size: 12px;
+      color: #1a73e8;
+      cursor: pointer;
+      text-decoration: none;
+      background: none;
+      border: none;
+      padding: 0;
+    }
+
+    #settings-link:hover {
+      text-decoration: underline;
+    }
+
+    #error-banner {
+      display: none;
+      margin: 10px 16px;
+      padding: 10px 12px;
+      background: #fce8e6;
+      border: 1px solid #f28b82;
+      border-radius: 4px;
+      font-size: 12px;
+      color: #c5221f;
+      line-height: 1.4;
+    }
+
+    #run-all-bar {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 16px;
+      border-bottom: 1px solid #dadce0;
+      background: #f8f9fa;
+    }
+
+    #run-all-bar.visible {
+      display: flex;
+    }
+
+    #pending-count-label {
+      font-size: 12px;
+      color: #5f6368;
+    }
+
+    #run-all-btn {
+      padding: 6px 14px;
+      background: #1a73e8;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    #run-all-btn:hover:not(:disabled) {
+      background: #1557b0;
+    }
+
+    #run-all-btn:disabled {
+      background: #dadce0;
+      color: #80868b;
+      cursor: not-allowed;
+    }
+
+    #limit-warning {
+      display: none;
+      margin: 8px 16px 0;
+      padding: 8px 12px;
+      background: #fef7e0;
+      border: 1px solid #f9ab00;
+      border-radius: 4px;
+      font-size: 12px;
+      color: #7d5c00;
+      line-height: 1.4;
+    }
+
+    #cards-container {
+      padding: 12px 16px;
+    }
+
+    .empty-state {
+      color: #5f6368;
+      font-size: 13px;
+      text-align: center;
+      padding: 30px 0;
+    }
+
+    /* ── Cards ── */
+    .card {
+      border: 1px solid #dadce0;
+      border-radius: 6px;
+      margin-bottom: 10px;
+      overflow: hidden;
+    }
+
+    .card-body {
+      padding: 10px 12px;
+    }
+
+    .card-anchor {
+      font-size: 11px;
+      color: #80868b;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-bottom: 5px;
+    }
+
+    .card-anchor::before {
+      content: '\201C';
+    }
+
+    .card-anchor::after {
+      content: '\201D';
+    }
+
+    .card-prompt {
+      font-size: 13px;
+      color: #202124;
+      line-height: 1.4;
+      margin-bottom: 10px;
+      word-break: break-word;
+    }
+
+    .card-footer {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .card-status {
+      font-size: 12px;
+      flex: 1;
+    }
+
+    .card-status.loading {
+      color: #5f6368;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .card-status.done {
+      color: #188038;
+      font-weight: 500;
+    }
+
+    .card-status.error {
+      color: #c5221f;
+    }
+
+    .run-btn {
+      padding: 5px 12px;
+      background: #fff;
+      color: #1a73e8;
+      border: 1px solid #dadce0;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.15s, border-color 0.15s;
+      flex-shrink: 0;
+    }
+
+    .run-btn:hover:not(:disabled) {
+      background: #e8f0fe;
+      border-color: #1a73e8;
+    }
+
+    .run-btn:disabled {
+      color: #80868b;
+      border-color: #dadce0;
+      cursor: not-allowed;
+    }
+
+    /* ── Spinner ── */
+    @keyframes spin {
+      0%   { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border: 2px solid #dadce0;
+      border-top-color: #1a73e8;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      flex-shrink: 0;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── Setup Panel ── -->
+  <div id="setup-panel">
+    <h2>Setup</h2>
+    <p class="subtitle">Enter your Anthropic API key and the Google account email you use for this doc.</p>
+
+    <div class="form-group">
+      <label for="api-key-input">Anthropic API Key</label>
+      <input type="password" id="api-key-input" placeholder="sk-ant-…" autocomplete="off">
+      <p class="hint">Get yours at console.anthropic.com</p>
+    </div>
+
+    <div class="form-group">
+      <label for="email-input">Your Google Account Email</label>
+      <input type="email" id="email-input" placeholder="you@gmail.com" autocomplete="off">
+      <p class="hint">Used to identify your replies and avoid duplicate responses.</p>
+    </div>
+
+    <button class="btn-primary" id="save-btn">Save</button>
+    <div id="setup-status"></div>
+  </div>
+
+  <!-- ── Main Panel ── -->
+  <div id="main-panel">
+    <div id="main-header">
+      <h1>Claude Assistant</h1>
+      <button id="settings-link">Settings</button>
+    </div>
+
+    <div id="error-banner"></div>
+
+    <div id="limit-warning">
+      Warning: processing all at once may hit the 6-minute Apps Script limit.
+    </div>
+
+    <div id="run-all-bar">
+      <span id="pending-count-label"></span>
+      <button id="run-all-btn">Run all</button>
+    </div>
+
+    <div id="cards-container"></div>
+  </div>
+
+  <script>
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
+    function escHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function showPanel(name) {
+      document.getElementById('setup-panel').classList.remove('visible');
+      document.getElementById('main-panel').classList.remove('visible');
+      document.getElementById(name + '-panel').classList.add('visible');
+    }
+
+    function showError(msg) {
+      var banner = document.getElementById('error-banner');
+      banner.textContent = typeof msg === 'string' ? msg : (msg && msg.message ? msg.message : String(msg));
+      banner.style.display = 'block';
+    }
+
+    // ── State ────────────────────────────────────────────────────────────────
+
+    var pendingItems = [];
+    var runningCount = 0;
+
+    // ── Setup Panel ──────────────────────────────────────────────────────────
+
+    document.getElementById('save-btn').addEventListener('click', function() {
+      var apiKey = document.getElementById('api-key-input').value.trim();
+      var email = document.getElementById('email-input').value.trim();
+      var statusEl = document.getElementById('setup-status');
+      var saveBtn = document.getElementById('save-btn');
+
+      if (!apiKey || !email) {
+        statusEl.textContent = 'Please fill in both fields.';
+        statusEl.className = 'error';
+        return;
+      }
+
+      saveBtn.disabled = true;
+      statusEl.textContent = 'Saving\u2026';
+      statusEl.className = '';
+
+      google.script.run
+        .withSuccessHandler(function() {
+          statusEl.textContent = 'Saved! Loading comments\u2026';
+          statusEl.className = 'success';
+          saveBtn.disabled = false;
+          loadInvocations();
+        })
+        .withFailureHandler(function(err) {
+          statusEl.textContent = 'Error: ' + (err && err.message ? err.message : String(err));
+          statusEl.className = 'error';
+          saveBtn.disabled = false;
+        })
+        .saveSettings(apiKey, email);
+    });
+
+    document.getElementById('settings-link').addEventListener('click', function() {
+      showPanel('setup');
+    });
+
+    // ── Load Invocations ─────────────────────────────────────────────────────
+
+    function loadInvocations() {
+      google.script.run
+        .withSuccessHandler(onInvocationsLoaded)
+        .withFailureHandler(function(err) {
+          showPanel('main');
+          showError(err && err.message ? err.message : String(err));
+        })
+        .getPendingInvocations();
+    }
+
+    function onInvocationsLoaded(result) {
+      if (result.needsSetup) {
+        showPanel('setup');
+        return;
+      }
+
+      showPanel('main');
+      pendingItems = result.pending || [];
+      renderCards(pendingItems);
+    }
+
+    // ── Render Cards ─────────────────────────────────────────────────────────
+
+    function renderCards(items) {
+      var container = document.getElementById('cards-container');
+      var runAllBar = document.getElementById('run-all-bar');
+      var countLabel = document.getElementById('pending-count-label');
+      var runAllBtn = document.getElementById('run-all-btn');
+      var limitWarning = document.getElementById('limit-warning');
+      var errorBanner = document.getElementById('error-banner');
+
+      errorBanner.style.display = 'none';
+      container.innerHTML = '';
+
+      if (items.length === 0) {
+        var empty = document.createElement('p');
+        empty.className = 'empty-state';
+        empty.textContent = 'No pending @claude comments.';
+        container.appendChild(empty);
+        runAllBar.classList.remove('visible');
+        limitWarning.style.display = 'none';
+        return;
+      }
+
+      runAllBar.classList.add('visible');
+      countLabel.textContent = items.length + ' pending comment' + (items.length === 1 ? '' : 's');
+
+      if (items.length > 8) {
+        limitWarning.style.display = 'block';
+      } else {
+        limitWarning.style.display = 'none';
+      }
+
+      for (var i = 0; i < items.length; i++) {
+        container.appendChild(createCard(items[i], i));
+      }
+
+      runAllBtn.onclick = runAll;
+    }
+
+    function createCard(item, index) {
+      var card = document.createElement('div');
+      card.className = 'card';
+      card.dataset.index = index;
+
+      var body = document.createElement('div');
+      body.className = 'card-body';
+
+      if (item.anchorText) {
+        var anchor = document.createElement('div');
+        anchor.className = 'card-anchor';
+        anchor.textContent = item.anchorText;
+        body.appendChild(anchor);
+      }
+
+      var prompt = document.createElement('div');
+      prompt.className = 'card-prompt';
+      prompt.textContent = item.prompt || '(no prompt text)';
+      body.appendChild(prompt);
+
+      var footer = document.createElement('div');
+      footer.className = 'card-footer';
+
+      var statusEl = document.createElement('div');
+      statusEl.className = 'card-status';
+
+      var runBtn = document.createElement('button');
+      runBtn.className = 'run-btn';
+      runBtn.textContent = 'Run';
+      runBtn.dataset.index = index;
+      runBtn.onclick = (function(idx) {
+        return function() { runSingle(idx); };
+      })(index);
+
+      footer.appendChild(statusEl);
+      footer.appendChild(runBtn);
+      body.appendChild(footer);
+      card.appendChild(body);
+
+      return card;
+    }
+
+    function getCardEls(index) {
+      var card = document.querySelector('.card[data-index="' + index + '"]');
+      if (!card) return null;
+      return {
+        status: card.querySelector('.card-status'),
+        btn: card.querySelector('.run-btn')
+      };
+    }
+
+    function setCardLoading(index) {
+      var els = getCardEls(index);
+      if (!els) return;
+      els.status.className = 'card-status loading';
+      els.status.innerHTML = '<span class="spinner"></span> Running\u2026';
+      els.btn.disabled = true;
+    }
+
+    function setCardDone(index) {
+      var els = getCardEls(index);
+      if (!els) return;
+      els.status.className = 'card-status done';
+      els.status.textContent = 'Done.';
+      els.btn.disabled = true;
+    }
+
+    function setCardError(index, msg) {
+      var els = getCardEls(index);
+      if (!els) return;
+      els.status.className = 'card-status error';
+      els.status.textContent = msg;
+      els.btn.disabled = false;
+    }
+
+    // ── Run Single ───────────────────────────────────────────────────────────
+
+    function runSingle(index) {
+      var item = pendingItems[index];
+      if (!item) return;
+
+      runningCount++;
+      updateRunAllBtn();
+      setCardLoading(index);
+
+      google.script.run
+        .withSuccessHandler((function(idx) {
+          return function() {
+            runningCount--;
+            updateRunAllBtn();
+            setCardDone(idx);
+          };
+        })(index))
+        .withFailureHandler((function(idx) {
+          return function(err) {
+            runningCount--;
+            updateRunAllBtn();
+            setCardError(idx, err && err.message ? err.message : String(err));
+          };
+        })(index))
+        .processInvocation(item.commentId, item.replyId);
+    }
+
+    // ── Run All ──────────────────────────────────────────────────────────────
+
+    function runAll() {
+      for (var i = 0; i < pendingItems.length; i++) {
+        var els = getCardEls(i);
+        // Skip cards already done or loading
+        if (els && !els.btn.disabled) {
+          runSingle(i);
+        }
+      }
+    }
+
+    function updateRunAllBtn() {
+      var runAllBtn = document.getElementById('run-all-btn');
+      if (runAllBtn) {
+        runAllBtn.disabled = runningCount > 0;
+      }
+    }
+
+    // ── Init ─────────────────────────────────────────────────────────────────
+
+    document.addEventListener('DOMContentLoaded', function() {
+      loadInvocations();
+    });
+  </script>
+</body>
+</html>
