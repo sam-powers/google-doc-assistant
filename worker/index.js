@@ -479,6 +479,17 @@ async function processDoc(config, env) {
   }
 
   try {
+    const debounceKey = `debounce_${config.docId}`;
+    const debounced = await env.DOC_CONFIGS.get(debounceKey);
+    if (debounced) {
+      console.log(`[processDoc] debounced, skipping`);
+      return;
+    }
+    await env.DOC_CONFIGS.put(debounceKey, '1', { expirationTtl: 30 });
+
+    // Wait briefly for Drive's comment index to catch up after the webhook fires
+    await new Promise(r => setTimeout(r, 4000));
+
     const accessToken = await getServiceAccountToken(env);
     console.log('[processDoc] got service account token');
 
@@ -489,13 +500,21 @@ async function processDoc(config, env) {
     console.log(`[processDoc] ${processedIds.size} already-processed IDs`);
 
     const ownerEmail = (config.ownerEmail || '').toLowerCase();
+    console.log(`[processDoc] ownerEmail filter=${ownerEmail || 'none'}`);
     const allPending = [];
     for (const comment of comments) {
       if (comment.resolved) continue;
+      const commentAge = new Date(comment.createdTime).getTime();
+      const isNew = commentAge >= config.activatedAt;
+      const hasAtClaude = /@claude/i.test(comment.content);
+      const commentAuthor = authorEmail(comment);
+      if (hasAtClaude) {
+        console.log(`[processDoc] @claude comment id=${comment.id} createdTime=${comment.createdTime} isNew=${isNew} author=${commentAuthor} ownerMatch=${!ownerEmail || commentAuthor === ownerEmail}`);
+      }
       // Only process comments created after this channel was activated
-      if (new Date(comment.createdTime).getTime() < config.activatedAt) continue;
+      if (!isNew) continue;
       // Only process comments authored by the user who activated the add-on
-      if (ownerEmail && authorEmail(comment) !== ownerEmail) continue;
+      if (ownerEmail && commentAuthor !== ownerEmail) continue;
       const pending = processComment(comment, SERVICE_ACCOUNT_EMAIL, processedIds);
       for (const p of pending) {
         allPending.push({ ...p, comment });
