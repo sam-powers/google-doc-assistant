@@ -4,5 +4,5 @@ compatibility_date = "2024-01-01"
 
 [[kv_namespaces]]
 binding = "DOC_CONFIGS"
-id = "REPLACE_WITH_PRODUCTION_KV_ID"
-preview_id = "REPLACE_WITH_PREVIEW_KV_ID"
+id = "ba63db417c5f41c5863eb84c9b3e94d5"
+preview_id = "b07b4eb6e38949eaa1db44a2fd215870"
