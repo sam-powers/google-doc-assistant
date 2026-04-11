@@ -41,6 +41,50 @@ function saveSettings(apiKey) {
 
 // ─── Watch Setup ──────────────────────────────────────────────────────────────
 
+// ─── Per-doc watch helpers ────────────────────────────────────────────────────
+
+function getDocWatch(docId) {
+  var props = PropertiesService.getUserProperties();
+  var channelId  = props.getProperty('watch_' + docId + '_channelId');
+  var expiration = parseInt(props.getProperty('watch_' + docId + '_expiration') || '0', 10);
+  if (!channelId || !expiration) return null;
+  return {
+    channelId:    channelId,
+    channelToken: props.getProperty('watch_' + docId + '_channelToken'),
+    resourceId:   props.getProperty('watch_' + docId + '_resourceId'),
+    expiration:   expiration
+  };
+}
+
+function setDocWatch(docId, channelId, channelToken, resourceId, expiration) {
+  var props = PropertiesService.getUserProperties();
+  props.setProperty('watch_' + docId + '_channelId',    channelId);
+  props.setProperty('watch_' + docId + '_channelToken', channelToken);
+  props.setProperty('watch_' + docId + '_resourceId',   resourceId);
+  props.setProperty('watch_' + docId + '_expiration',   String(expiration));
+
+  // Keep a list of all activated docIds for renewal trigger
+  var raw = props.getProperty('watchDocIds');
+  var ids = raw ? JSON.parse(raw) : [];
+  if (ids.indexOf(docId) === -1) ids.push(docId);
+  props.setProperty('watchDocIds', JSON.stringify(ids));
+}
+
+function clearDocWatch(docId) {
+  var props = PropertiesService.getUserProperties();
+  props.deleteProperty('watch_' + docId + '_channelId');
+  props.deleteProperty('watch_' + docId + '_channelToken');
+  props.deleteProperty('watch_' + docId + '_resourceId');
+  props.deleteProperty('watch_' + docId + '_expiration');
+
+  var raw = props.getProperty('watchDocIds');
+  var ids = raw ? JSON.parse(raw) : [];
+  ids = ids.filter(function(id) { return id !== docId; });
+  props.setProperty('watchDocIds', JSON.stringify(ids));
+}
+
+// ─── Watch Setup ──────────────────────────────────────────────────────────────
+
 function setupDoc() {
   var props = PropertiesService.getUserProperties();
   var apiKey = props.getProperty('anthropicApiKey');
@@ -56,33 +100,27 @@ function setupDoc() {
       { sendNotificationEmail: false, fields: 'id' }
     );
   } catch (e) {
-    // Ignore if already has access
     if (e.message && e.message.toLowerCase().indexOf('already') === -1 &&
         e.message.toLowerCase().indexOf('duplicate') === -1) {
       throw new Error('Could not share document with Claude: ' + e.message);
     }
   }
 
-  // Stop any existing watch channel before registering a new one
-  var oldChannelId = props.getProperty('watchChannelId');
-  var oldChannelToken = props.getProperty('watchChannelToken');
-  if (oldChannelId) {
+  // Stop any existing watch for this doc before registering a new one
+  var existing = getDocWatch(docId);
+  if (existing && existing.channelId && existing.resourceId) {
     try {
-      Drive.Channels.stop({ id: oldChannelId, resourceId: oldChannelToken });
-      Logger.log('Stopped old watch channel: ' + oldChannelId);
+      Drive.Channels.stop({ id: existing.channelId, resourceId: existing.resourceId });
     } catch (e) {
       Logger.log('Could not stop old channel (may have already expired): ' + e.message);
     }
   }
 
-  // Step 2: Register Drive Changes watch (fires on comment additions;
-  // Files.watch only fires on content changes, not comments)
+  // Step 2: Register Drive Changes watch
   var channelId = Utilities.getUuid();
   var channelToken = Utilities.getUuid();
   var expiration = Date.now() + WATCH_DURATION_MS;
 
-  // Drive.Changes.watch fires for comment additions (Files.watch does not).
-  // pageToken is a required positional string arg — do NOT wrap in an object.
   var startPageToken = Drive.Changes.getStartPageToken().startPageToken;
   var watchResource = {
     id: channelId,
@@ -91,7 +129,8 @@ function setupDoc() {
     token: channelToken,
     expiration: String(expiration)
   };
-  Drive.Changes.watch(watchResource, startPageToken);
+  var watchResponse = Drive.Changes.watch(watchResource, startPageToken);
+  var resourceId = watchResponse.resourceId;
 
   // Step 3: Register with Cloudflare Worker
   var registerSecret = PropertiesService.getScriptProperties().getProperty('REGISTER_SECRET');
@@ -106,9 +145,7 @@ function setupDoc() {
       channelId: channelId,
       docId: docId,
       anthropicApiKey: apiKey,
-      activatedAt: Date.now(),
-      ownerEmail: Session.getActiveUser().getEmail(),
-      ownerPermissionId: Drive.About.get({ fields: 'user' }).user.permissionId
+      activatedAt: Date.now()
     }),
     muteHttpExceptions: true
   });
@@ -117,48 +154,46 @@ function setupDoc() {
     throw new Error('Worker registration failed: ' + response.getContentText());
   }
 
-  // Step 4: Store watch metadata for renewal
-  props.setProperty('watchChannelId', channelId);
-  props.setProperty('watchChannelToken', channelToken);
-  props.setProperty('watchExpiration', String(expiration));
-  props.setProperty('watchDocId', docId);
+  // Step 4: Store watch metadata keyed by docId
+  setDocWatch(docId, channelId, channelToken, resourceId, expiration);
 
-  // Step 5: Install daily renewal trigger
+  // Step 5: Install daily renewal trigger (one trigger covers all docs)
   installRenewalTrigger();
 
-  var expiresAt = new Date(expiration).toLocaleDateString();
-  return { success: true, expiresAt: expiresAt };
+  return { success: true, expiresAt: new Date(expiration).toLocaleDateString() };
 }
 
 function renewWatch() {
   var props = PropertiesService.getUserProperties();
-  var expiration = parseInt(props.getProperty('watchExpiration') || '0', 10);
-  var docId = props.getProperty('watchDocId');
-
-  if (!expiration || !docId) return;
-
+  var raw = props.getProperty('watchDocIds');
+  if (!raw) return;
+  var docIds = JSON.parse(raw);
   var now = Date.now();
   var twentyFourHours = 24 * 60 * 60 * 1000;
 
-  if (expiration - now > twentyFourHours) return; // Not expiring soon
+  for (var i = 0; i < docIds.length; i++) {
+    var docId = docIds[i];
+    var watch = getDocWatch(docId);
+    if (!watch) continue;
+    if (watch.expiration - now > twentyFourHours) continue;
 
-  // Stop the old channel (best-effort)
-  var oldChannelId = props.getProperty('watchChannelId');
-  var oldChannelToken = props.getProperty('watchChannelToken');
-  if (oldChannelId && oldChannelToken) {
-    try {
-      Drive.Channels.stop({ id: oldChannelId, resourceId: oldChannelToken });
-    } catch (e) {
-      Logger.log('Could not stop old channel: ' + e.message);
+    // Stop old channel
+    if (watch.channelId && watch.resourceId) {
+      try {
+        Drive.Channels.stop({ id: watch.channelId, resourceId: watch.resourceId });
+      } catch (e) {
+        Logger.log('Could not stop old channel for ' + docId + ': ' + e.message);
+      }
     }
-  }
 
-  // Re-register
-  setupDoc();
+    // Re-register — needs apiKey, but we can't open a doc by ID from a trigger context.
+    // Clear the expired entry; user will need to reactivate from the sidebar.
+    clearDocWatch(docId);
+    Logger.log('Watch expired for docId=' + docId + ', cleared. User must reactivate.');
+  }
 }
 
 function installRenewalTrigger() {
-  // Remove existing renewWatch triggers for this script
   var triggers = ScriptApp.getProjectTriggers();
   for (var i = 0; i < triggers.length; i++) {
     if (triggers[i].getHandlerFunction() === 'renewWatch') {
@@ -172,24 +207,61 @@ function installRenewalTrigger() {
 }
 
 function getWatchStatus() {
-  var props = PropertiesService.getUserProperties();
-  var channelId = props.getProperty('watchChannelId');
-  var expiration = parseInt(props.getProperty('watchExpiration') || '0', 10);
+  var docId = DocumentApp.getActiveDocument().getId();
+  var watch = getDocWatch(docId);
 
-  if (!channelId || !expiration) {
-    return { active: false };
-  }
+  if (!watch) return { active: false };
 
   var now = Date.now();
-  if (expiration < now) {
+  if (watch.expiration < now) {
+    clearDocWatch(docId);
     return { active: false, expired: true };
   }
 
   return {
     active: true,
-    expiresAt: new Date(expiration).toLocaleDateString(),
-    hoursRemaining: Math.floor((expiration - now) / (1000 * 60 * 60))
+    expiresAt: new Date(watch.expiration).toLocaleDateString(),
+    hoursRemaining: Math.floor((watch.expiration - now) / (1000 * 60 * 60))
   };
+}
+
+function deactivateDoc() {
+  var docId = DocumentApp.getActiveDocument().getId();
+  var watch = getDocWatch(docId);
+
+  // Stop the Drive watch channel
+  if (watch && watch.channelId && watch.resourceId) {
+    try {
+      Drive.Channels.stop({ id: watch.channelId, resourceId: watch.resourceId });
+    } catch (e) {
+      Logger.log('Could not stop channel (may have already expired): ' + e.message);
+    }
+  }
+
+  // Tell the worker to clear the canonical entry for this doc
+  if (watch && watch.channelToken) {
+    try {
+      var registerSecret = PropertiesService.getScriptProperties().getProperty('REGISTER_SECRET');
+      var workerUnregisterUrl = WORKER_REGISTER_URL.replace('/register', '/unregister');
+      UrlFetchApp.fetch(workerUnregisterUrl, {
+        method: 'post',
+        headers: {
+          'Authorization': 'Bearer ' + registerSecret,
+          'Content-Type': 'application/json'
+        },
+        payload: JSON.stringify({ channelToken: watch.channelToken, docId: docId }),
+        muteHttpExceptions: true
+      });
+    } catch (e) {
+      Logger.log('Could not unregister from worker: ' + e.message);
+    }
+  }
+
+  // Clear watch state and API key for this doc's session
+  clearDocWatch(docId);
+  PropertiesService.getUserProperties().deleteProperty('anthropicApiKey');
+
+  return { success: true };
 }
 
 // ─── Document Context ─────────────────────────────────────────────────────────

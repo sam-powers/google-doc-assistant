@@ -9,6 +9,7 @@ export default {
     const url = new URL(request.url);
     if (request.method === 'POST' && url.pathname === '/webhook') return handleWebhook(request, env, ctx);
     if (request.method === 'POST' && url.pathname === '/register') return handleRegister(request, env);
+    if (request.method === 'POST' && url.pathname === '/unregister') return handleUnregister(request, env);
     return new Response('Not Found', { status: 404 });
   }
 };
@@ -27,12 +28,33 @@ async function handleRegister(request, env) {
     return new Response('Invalid JSON', { status: 400 });
   }
 
-  const { channelToken, channelId, docId, anthropicApiKey, activatedAt, ownerEmail, ownerPermissionId } = body;
+  const { channelToken, channelId, docId, anthropicApiKey, activatedAt } = body;
   if (!channelToken || !channelId || !docId || !anthropicApiKey) {
     return new Response('Missing required fields: channelToken, channelId, docId, anthropicApiKey', { status: 400 });
   }
 
-  await env.DOC_CONFIGS.put(channelToken, JSON.stringify({ docId, anthropicApiKey, channelId, activatedAt, ownerEmail, ownerPermissionId }));
+  await env.DOC_CONFIGS.put(channelToken, JSON.stringify({ docId, anthropicApiKey, channelId, activatedAt }));
+  await env.DOC_CONFIGS.put(`canonical_${docId}`, channelToken);
+  return new Response('OK', { status: 200 });
+}
+
+async function handleUnregister(request, env) {
+  const authHeader = request.headers.get('Authorization') || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+  if (!token || token !== env.REGISTER_SECRET) {
+    return new Response('Unauthorized', { status: 401 });
+  }
+
+  let body;
+  try { body = await request.json(); } catch { return new Response('Invalid JSON', { status: 400 }); }
+
+  const { channelToken, docId } = body;
+  if (channelToken) await env.DOC_CONFIGS.delete(channelToken);
+  if (docId) {
+    const canonical = await env.DOC_CONFIGS.get(`canonical_${docId}`);
+    if (canonical === channelToken) await env.DOC_CONFIGS.delete(`canonical_${docId}`);
+  }
+
   return new Response('OK', { status: 200 });
 }
 
@@ -75,6 +97,7 @@ async function handleWebhook(request, env, ctx) {
     return new Response('OK', { status: 200 });
   }
 
+  config.channelToken = channelToken;
   console.log(`[webhook] dispatching processDoc for docId=${config.docId}`);
   ctx.waitUntil(processDoc(config, env));
   return new Response('OK', { status: 200 });
@@ -165,7 +188,7 @@ async function fetchAllComments(docId, accessToken) {
   do {
     const params = new URLSearchParams({
       pageSize: '100',
-      fields: 'comments(id,content,createdTime,quotedFileContent,author,resolved,replies(id,content,createdTime,author)),nextPageToken',
+      fields: 'comments(id,content,createdTime,quotedFileContent,author(displayName,me),resolved,replies(id,content,createdTime,author(displayName,me))),nextPageToken',
       includeDeleted: 'false'
     });
     if (pageToken) {
@@ -422,7 +445,6 @@ async function processSingleInvocation(item, docId, anthropicApiKey, accessToken
     model: CLAUDE_MODEL,
     max_tokens: MAX_TOKENS,
     system: systemPrompt,
-    tools: [{ type: 'web_search_20250305', name: 'web_search' }],
     messages
   };
 
@@ -431,7 +453,6 @@ async function processSingleInvocation(item, docId, anthropicApiKey, accessToken
     headers: {
       'x-api-key': anthropicApiKey,
       'anthropic-version': '2023-06-01',
-      'anthropic-beta': 'web-search-2025-03-05',
       'Content-Type': 'application/json'
     },
     body: JSON.stringify(payload)
@@ -478,9 +499,15 @@ async function processDoc(config, env) {
     return;
   }
 
+  const canonical = await env.DOC_CONFIGS.get(`canonical_${config.docId}`);
+  if (canonical && canonical !== config.channelToken) {
+    console.log(`[processDoc] not canonical channel, skipping`);
+    return;
+  }
+
   try {
     // Wait briefly for Drive's comment index to catch up after the webhook fires
-    await new Promise(r => setTimeout(r, 4000));
+    await new Promise(r => setTimeout(r, 2000));
 
     const accessToken = await getServiceAccountToken(env);
     console.log('[processDoc] got service account token');
@@ -491,20 +518,16 @@ async function processDoc(config, env) {
     const processedIds = await getProcessedIds(config.docId, env);
     console.log(`[processDoc] ${processedIds.size} already-processed IDs`);
 
-    const ownerPermissionId = config.ownerPermissionId || '';
-    console.log(`[processDoc] owner permissionId=${ownerPermissionId || 'none'}`);
     const allPending = [];
     for (const comment of comments) {
       if (comment.resolved) continue;
       const commentAge = new Date(comment.createdTime).getTime();
       const isNew = commentAge >= config.activatedAt;
       const hasAtClaude = /@claude/i.test(comment.content);
-      const commentPermissionId = comment.author?.permissionId || '';
       if (hasAtClaude) {
-        console.log(`[processDoc] @claude comment id=${comment.id} isNew=${isNew} permissionId=${commentPermissionId} ownerMatch=${!ownerPermissionId || commentPermissionId === ownerPermissionId}`);
+        console.log(`[processDoc] @claude comment id=${comment.id} isNew=${isNew}`);
       }
       if (!isNew) continue;
-      if (ownerPermissionId && commentPermissionId !== ownerPermissionId) continue;
       const pending = processComment(comment, SERVICE_ACCOUNT_EMAIL, processedIds);
       for (const p of pending) {
         allPending.push({ ...p, comment });

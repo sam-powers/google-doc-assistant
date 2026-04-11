@@ -4,289 +4,199 @@
   <meta charset="UTF-8">
   <base target="_top">
   <style>
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
-      font-family: Arial, sans-serif;
+      font-family: 'Google Sans', Roboto, Arial, sans-serif;
       font-size: 13px;
       color: #202124;
       background: #fff;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
     }
 
-    /* ── Panels ── */
-    #setup-panel,
-    #main-panel {
-      display: none;
+    /* ── Header ── */
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 14px 16px 12px;
+      border-bottom: 1px solid #e8eaed;
     }
 
-    #setup-panel.visible,
-    #main-panel.visible {
-      display: block;
+    .header-icon {
+      width: 24px;
+      height: 24px;
+      background: #1a73e8;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
     }
 
-    /* ── Setup Panel ── */
-    #setup-panel {
-      padding: 20px 16px;
-    }
+    .header-icon svg { display: block; }
 
-    #setup-panel h2 {
-      font-size: 15px;
-      font-weight: 600;
+    .header-title {
+      font-size: 14px;
+      font-weight: 500;
       color: #202124;
-      margin-bottom: 4px;
+      flex: 1;
     }
 
-    #setup-panel p.subtitle {
+    /* ── Content ── */
+    .content {
+      flex: 1;
+      padding: 20px 16px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Setup State ── */
+    #setup-state { display: none; }
+    #setup-state.visible { display: flex; flex-direction: column; gap: 16px; }
+
+    .setup-description {
       font-size: 12px;
       color: #5f6368;
-      margin-bottom: 20px;
-      line-height: 1.4;
+      line-height: 1.5;
     }
 
-    .form-group {
-      margin-bottom: 14px;
-    }
-
-    .form-group label {
-      display: block;
-      font-size: 12px;
-      font-weight: 600;
+    .field-label {
+      font-size: 11px;
+      font-weight: 500;
       color: #3c4043;
       margin-bottom: 5px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
     }
 
-    .form-group input {
-      width: 100%;
+    .input-row {
+      display: flex;
+      gap: 6px;
+    }
+
+    .input-row input {
+      flex: 1;
       padding: 8px 10px;
       border: 1px solid #dadce0;
       border-radius: 4px;
       font-size: 13px;
       color: #202124;
       outline: none;
+      font-family: inherit;
       transition: border-color 0.15s;
     }
 
-    .form-group input:focus {
-      border-color: #1a73e8;
-    }
+    .input-row input:focus { border-color: #1a73e8; }
 
-    .form-group .hint {
-      font-size: 11px;
-      color: #5f6368;
-      margin-top: 4px;
-    }
-
-    .btn-primary {
-      display: inline-block;
-      padding: 8px 18px;
-      background: #1a73e8;
-      color: #fff;
-      border: none;
-      border-radius: 4px;
-      font-size: 13px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: background 0.15s;
-    }
-
-    .btn-primary:hover:not(:disabled) {
-      background: #1557b0;
-    }
-
-    .btn-primary:disabled {
-      background: #dadce0;
-      color: #80868b;
-      cursor: not-allowed;
-    }
-
-    #setup-status {
-      margin-top: 10px;
-      font-size: 12px;
-      min-height: 16px;
-    }
-
-    #setup-status.success {
-      color: #188038;
-    }
-
-    #setup-status.error {
-      color: #c5221f;
-    }
-
-    /* ── Setup Phase 2 ── */
-    #setup-phase-1,
-    #setup-phase-2 {
-      display: none;
-    }
-
-    #setup-phase-1.active,
-    #setup-phase-2.active {
-      display: block;
-    }
-
-    .phase2-description {
-      font-size: 12px;
-      color: #5f6368;
-      line-height: 1.5;
-      margin-bottom: 16px;
-      padding: 10px 12px;
-      background: #f8f9fa;
-      border-radius: 4px;
-      border-left: 3px solid #1a73e8;
-    }
-
-    #activate-btn {
-      width: 100%;
-      padding: 10px 18px;
-      background: #188038;
-      color: #fff;
-      border: none;
-      border-radius: 4px;
-      font-size: 13px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: background 0.15s;
-    }
-
-    #activate-btn:hover:not(:disabled) {
-      background: #146c2e;
-    }
-
-    #activate-btn:disabled {
-      background: #dadce0;
-      color: #80868b;
-      cursor: not-allowed;
-    }
-
-    #activate-status {
-      margin-top: 10px;
-      font-size: 12px;
-      min-height: 16px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    #activate-status.success {
-      color: #188038;
-    }
-
-    #activate-status.error {
-      color: #c5221f;
-    }
-
-    /* ── Watch Status Bar ── */
-    #watch-status-bar {
-      display: none;
-      padding: 7px 16px;
-      border-bottom: 1px solid #dadce0;
-      font-size: 12px;
-      align-items: center;
-      gap: 6px;
-    }
-
-    #watch-status-bar.active {
-      display: flex;
-      background: #e6f4ea;
-    }
-
-    #watch-status-bar.expired {
-      display: flex;
-      background: #fef7e0;
-    }
-
-    .watch-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      flex-shrink: 0;
-    }
-
-    .watch-dot.green {
-      background: #188038;
-    }
-
-    .watch-dot.yellow {
-      background: #f9ab00;
-    }
-
-    #watch-status-text {
-      flex: 1;
+    .btn-secondary {
+      padding: 8px 12px;
+      background: #f1f3f4;
       color: #3c4043;
-    }
-
-    #reactivate-btn {
-      padding: 4px 10px;
-      background: #fff;
-      color: #5d4037;
-      border: 1px solid #f9ab00;
+      border: 1px solid #dadce0;
       border-radius: 4px;
-      font-size: 11px;
+      font-size: 12px;
       font-weight: 500;
       cursor: pointer;
       white-space: nowrap;
+      font-family: inherit;
       transition: background 0.15s;
     }
 
-    #reactivate-btn:hover {
-      background: #fef7e0;
+    .btn-secondary:hover:not(:disabled) { background: #e8eaed; }
+    .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .key-status {
+      font-size: 11px;
+      min-height: 14px;
+      margin-top: 4px;
     }
 
-    /* ── Main Panel ── */
-    #main-header {
+    .key-status.valid { color: #188038; }
+    .key-status.invalid { color: #c5221f; }
+    .key-status.testing { color: #5f6368; }
+
+    .btn-primary {
+      width: 100%;
+      padding: 10px;
+      background: #1a73e8;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      font-family: inherit;
+      transition: background 0.15s;
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      padding: 12px 16px;
-      border-bottom: 1px solid #dadce0;
+      justify-content: center;
+      gap: 6px;
     }
 
-    #main-header h1 {
-      font-size: 14px;
-      font-weight: 600;
+    .btn-primary:hover:not(:disabled) { background: #1557b0; }
+    .btn-primary:disabled { background: #dadce0; color: #80868b; cursor: not-allowed; }
+
+    /* ── Active State ── */
+    #active-state { display: none; }
+    #active-state.visible { display: flex; flex-direction: column; gap: 20px; }
+
+    .status-card {
+      background: #f0f7ff;
+      border: 1px solid #c5dff8;
+      border-radius: 8px;
+      padding: 14px 16px;
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #188038;
+      margin-top: 3px;
+      flex-shrink: 0;
+      box-shadow: 0 0 0 3px rgba(24,128,56,0.15);
+    }
+
+    .status-info {}
+
+    .status-label {
+      font-size: 13px;
+      font-weight: 500;
       color: #202124;
     }
 
-    #settings-link {
-      font-size: 12px;
-      color: #1a73e8;
-      cursor: pointer;
-      text-decoration: none;
-      background: none;
-      border: none;
-      padding: 0;
-    }
-
-    #settings-link:hover {
-      text-decoration: underline;
-    }
-
-    #refresh-btn {
-      font-size: 15px;
+    .status-expires {
+      font-size: 11px;
       color: #5f6368;
+      margin-top: 2px;
+    }
+
+    .btn-danger {
+      width: 100%;
+      padding: 10px;
+      background: #fff;
+      color: #c5221f;
+      border: 1px solid #f28b82;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
       cursor: pointer;
-      background: none;
-      border: none;
-      padding: 0;
-      line-height: 1;
+      font-family: inherit;
+      transition: background 0.15s;
     }
 
-    #refresh-btn:hover {
-      color: #202124;
-    }
+    .btn-danger:hover:not(:disabled) { background: #fce8e6; }
+    .btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }
 
-    #refresh-btn:disabled {
-      opacity: 0.4;
-      cursor: not-allowed;
-    }
-
-    #error-banner {
+    /* ── Error / Info ── */
+    .error-msg {
       display: none;
-      margin: 10px 16px;
       padding: 10px 12px;
       background: #fce8e6;
       border: 1px solid #f28b82;
@@ -296,158 +206,7 @@
       line-height: 1.4;
     }
 
-    #run-all-bar {
-      display: none;
-      align-items: center;
-      justify-content: space-between;
-      padding: 10px 16px;
-      border-bottom: 1px solid #dadce0;
-      background: #f8f9fa;
-    }
-
-    #run-all-bar.visible {
-      display: flex;
-    }
-
-    #pending-count-label {
-      font-size: 12px;
-      color: #5f6368;
-    }
-
-    #run-all-btn {
-      padding: 6px 14px;
-      background: #1a73e8;
-      color: #fff;
-      border: none;
-      border-radius: 4px;
-      font-size: 12px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: background 0.15s;
-    }
-
-    #run-all-btn:hover:not(:disabled) {
-      background: #1557b0;
-    }
-
-    #run-all-btn:disabled {
-      background: #dadce0;
-      color: #80868b;
-      cursor: not-allowed;
-    }
-
-    #limit-warning {
-      display: none;
-      margin: 8px 16px 0;
-      padding: 8px 12px;
-      background: #fef7e0;
-      border: 1px solid #f9ab00;
-      border-radius: 4px;
-      font-size: 12px;
-      color: #7d5c00;
-      line-height: 1.4;
-    }
-
-    #cards-container {
-      padding: 12px 16px;
-    }
-
-    .empty-state {
-      color: #5f6368;
-      font-size: 13px;
-      text-align: center;
-      padding: 30px 0;
-    }
-
-    /* ── Cards ── */
-    .card {
-      border: 1px solid #dadce0;
-      border-radius: 6px;
-      margin-bottom: 10px;
-      overflow: hidden;
-    }
-
-    .card-body {
-      padding: 10px 12px;
-    }
-
-    .card-anchor {
-      font-size: 11px;
-      color: #80868b;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      margin-bottom: 5px;
-    }
-
-    .card-anchor::before {
-      content: '\201C';
-    }
-
-    .card-anchor::after {
-      content: '\201D';
-    }
-
-    .card-prompt {
-      font-size: 13px;
-      color: #202124;
-      line-height: 1.4;
-      margin-bottom: 10px;
-      word-break: break-word;
-    }
-
-    .card-footer {
-      display: flex;
-      align-items: center;
-      justify-content: flex-end;
-      gap: 8px;
-    }
-
-    .card-status {
-      font-size: 12px;
-      flex: 1;
-    }
-
-    .card-status.loading {
-      color: #5f6368;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .card-status.done {
-      color: #188038;
-      font-weight: 500;
-    }
-
-    .card-status.error {
-      color: #c5221f;
-    }
-
-    .run-btn {
-      padding: 5px 12px;
-      background: #fff;
-      color: #1a73e8;
-      border: 1px solid #dadce0;
-      border-radius: 4px;
-      font-size: 12px;
-      font-weight: 500;
-      cursor: pointer;
-      white-space: nowrap;
-      transition: background 0.15s, border-color 0.15s;
-      flex-shrink: 0;
-    }
-
-    .run-btn:hover:not(:disabled) {
-      background: #e8f0fe;
-      border-color: #1a73e8;
-    }
-
-    .run-btn:disabled {
-      color: #80868b;
-      border-color: #dadce0;
-      cursor: not-allowed;
-    }
+    .error-msg.visible { display: block; }
 
     /* ── Spinner ── */
     @keyframes spin {
@@ -457,466 +216,232 @@
 
     .spinner {
       display: inline-block;
-      width: 12px;
-      height: 12px;
-      border: 2px solid #dadce0;
-      border-top-color: #1a73e8;
+      width: 13px;
+      height: 13px;
+      border: 2px solid rgba(255,255,255,0.4);
+      border-top-color: #fff;
       border-radius: 50%;
       animation: spin 0.7s linear infinite;
-      flex-shrink: 0;
+    }
+
+    .spinner.dark {
+      border-color: rgba(0,0,0,0.15);
+      border-top-color: #c5221f;
     }
   </style>
 </head>
 <body>
 
-  <!-- ── Setup Panel ── -->
-  <div id="setup-panel">
-    <h2>Setup</h2>
-    <p class="subtitle">Connect your Anthropic API key to get started.</p>
-
-    <!-- Phase 1: API key + Test -->
-    <div id="setup-phase-1">
-      <div class="form-group">
-        <label for="api-key-input">Anthropic API Key</label>
-        <div style="display:flex;gap:6px;align-items:center;">
-          <input type="password" id="api-key-input" placeholder="sk-ant-…" autocomplete="off" style="flex:1">
-          <button id="test-api-btn" style="padding:8px 10px;background:#f1f3f4;color:#3c4043;border:1px solid #dadce0;border-radius:4px;font-size:12px;cursor:pointer;white-space:nowrap;">Test</button>
-        </div>
-        <div id="api-test-status" style="font-size:11px;margin-top:4px;min-height:14px;"></div>
-        <p class="hint">Get yours at console.anthropic.com</p>
-      </div>
-
-      <button class="btn-primary" id="next-btn" disabled>Next &rarr;</button>
-      <div id="setup-status"></div>
+  <div class="header">
+    <div class="header-icon">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <path d="M7 1L8.5 5.5H13L9.5 8.5L11 13L7 10L3 13L4.5 8.5L1 5.5H5.5L7 1Z" fill="white"/>
+      </svg>
     </div>
-
-    <!-- Phase 2: Activate Auto-Reply -->
-    <div id="setup-phase-2">
-      <p class="phase2-description">
-        Auto-reply sets up a watch on this document so Claude can respond to
-        <strong>@claude</strong> comments automatically. The watch expires after
-        7 days and can be renewed here at any time.
-      </p>
-
-      <button id="activate-btn">Activate Auto-Reply</button>
-      <div id="activate-status"></div>
-    </div>
+    <span class="header-title">Claude Assistant</span>
   </div>
 
-  <!-- ── Main Panel ── -->
-  <div id="main-panel">
-    <div id="main-header">
-      <h1>Claude Assistant</h1>
-      <div style="display:flex;gap:10px;align-items:center;">
-        <button id="refresh-btn">&#x21BB;</button>
-        <button id="settings-link">Settings</button>
+  <div class="content">
+
+    <!-- ── Setup State ── -->
+    <div id="setup-state">
+      <p class="setup-description">
+        Automatically responds to <strong>@claude</strong> comments in this document.
+        Replies appear under the Claude Assistant account.
+      </p>
+
+      <div>
+        <div class="field-label">Anthropic API Key</div>
+        <div class="input-row">
+          <input type="password" id="api-key-input" placeholder="sk-ant-…" autocomplete="off">
+          <button class="btn-secondary" id="test-btn">Test</button>
+        </div>
+        <div class="key-status" id="key-status"></div>
       </div>
+
+      <div class="error-msg" id="activate-error"></div>
+
+      <button class="btn-primary" id="activate-btn" disabled>Activate</button>
     </div>
 
-    <!-- Watch status bar (hidden until getWatchStatus resolves) -->
-    <div id="watch-status-bar">
-      <span class="watch-dot" id="watch-dot"></span>
-      <span id="watch-status-text"></span>
-      <button id="reactivate-btn" style="display:none;">Reactivate</button>
+    <!-- ── Active State ── -->
+    <div id="active-state">
+      <div class="status-card">
+        <div class="status-dot"></div>
+        <div class="status-info">
+          <div class="status-label">Active in this document</div>
+          <div class="status-expires" id="expires-text"></div>
+        </div>
+      </div>
+
+      <div class="error-msg" id="deactivate-error"></div>
+
+      <button class="btn-danger" id="deactivate-btn">Deactivate</button>
     </div>
 
-    <div id="error-banner"></div>
-
-    <div id="limit-warning">
-      Warning: processing all at once may hit the 6-minute Apps Script limit.
-    </div>
-
-    <div id="run-all-bar">
-      <span id="pending-count-label"></span>
-      <button id="run-all-btn">Run all</button>
-    </div>
-
-    <div id="cards-container"></div>
   </div>
 
   <script>
+    var keyValid = false;
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
-    function escHtml(str) {
-      if (!str) return '';
-      return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
+    function showState(name) {
+      document.getElementById('setup-state').classList.remove('visible');
+      document.getElementById('active-state').classList.remove('visible');
+      document.getElementById(name + '-state').classList.add('visible');
     }
 
-    function showPanel(name) {
-      document.getElementById('setup-panel').classList.remove('visible');
-      document.getElementById('main-panel').classList.remove('visible');
-      document.getElementById(name + '-panel').classList.add('visible');
+    function showError(id, msg) {
+      var el = document.getElementById(id);
+      el.textContent = msg;
+      el.classList.add('visible');
     }
 
-    function showSetupPhase(phase) {
-      document.getElementById('setup-phase-1').classList.remove('active');
-      document.getElementById('setup-phase-2').classList.remove('active');
-      document.getElementById('setup-phase-' + phase).classList.add('active');
+    function clearError(id) {
+      var el = document.getElementById(id);
+      el.textContent = '';
+      el.classList.remove('visible');
     }
 
-    function showError(msg) {
-      var banner = document.getElementById('error-banner');
-      banner.textContent = typeof msg === 'string' ? msg : (msg && msg.message ? msg.message : String(msg));
-      banner.style.display = 'block';
-    }
+    // ── Test API Key ─────────────────────────────────────────────────────────
 
-    // ── State ────────────────────────────────────────────────────────────────
+    document.getElementById('test-btn').addEventListener('click', function() {
+      var key = document.getElementById('api-key-input').value.trim();
+      var statusEl = document.getElementById('key-status');
+      var testBtn = document.getElementById('test-btn');
+      var activateBtn = document.getElementById('activate-btn');
 
-    var pendingItems = [];
-    var runningCount = 0;
-
-    // ── Setup Panel — Phase 1 ────────────────────────────────────────────────
-
-    document.getElementById('test-api-btn').addEventListener('click', function() {
-      var apiKey = document.getElementById('api-key-input').value.trim();
-      var statusEl = document.getElementById('api-test-status');
-      var testBtn = document.getElementById('test-api-btn');
-      var nextBtn = document.getElementById('next-btn');
-
-      if (!apiKey) {
-        statusEl.style.color = '#c5221f';
-        statusEl.textContent = 'Enter an API key first.';
+      if (!key) {
+        statusEl.className = 'key-status invalid';
+        statusEl.textContent = 'Enter a key first.';
         return;
       }
 
+      keyValid = false;
+      activateBtn.disabled = true;
       testBtn.disabled = true;
-      nextBtn.disabled = true;
-      statusEl.style.color = '#5f6368';
+      statusEl.className = 'key-status testing';
       statusEl.textContent = 'Testing\u2026';
 
       google.script.run
         .withSuccessHandler(function(result) {
           testBtn.disabled = false;
           if (result.ok) {
-            statusEl.style.color = '#188038';
-            statusEl.textContent = '\u2713 API key is valid';
-            nextBtn.disabled = false;
+            keyValid = true;
+            statusEl.className = 'key-status valid';
+            statusEl.textContent = '\u2713 Key is valid';
+            activateBtn.disabled = false;
           } else {
-            statusEl.style.color = '#c5221f';
+            statusEl.className = 'key-status invalid';
             statusEl.textContent = '\u2717 ' + result.error;
-            nextBtn.disabled = true;
           }
         })
         .withFailureHandler(function(err) {
           testBtn.disabled = false;
-          nextBtn.disabled = true;
-          statusEl.style.color = '#c5221f';
+          statusEl.className = 'key-status invalid';
           statusEl.textContent = '\u2717 ' + (err.message || String(err));
         })
-        .testApiKey(apiKey);
+        .testApiKey(key);
     });
 
-    document.getElementById('next-btn').addEventListener('click', function() {
-      var apiKey = document.getElementById('api-key-input').value.trim();
-      var statusEl = document.getElementById('setup-status');
-      var nextBtn = document.getElementById('next-btn');
+    // ── Activate ─────────────────────────────────────────────────────────────
 
-      if (!apiKey) {
-        statusEl.textContent = 'Please enter an API key.';
-        statusEl.className = 'error';
-        return;
-      }
+    document.getElementById('activate-btn').addEventListener('click', function() {
+      if (!keyValid) return;
+      var key = document.getElementById('api-key-input').value.trim();
+      var btn = document.getElementById('activate-btn');
 
-      nextBtn.disabled = true;
-      statusEl.textContent = 'Saving\u2026';
-      statusEl.className = '';
+      clearError('activate-error');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span> Activating\u2026';
 
       google.script.run
         .withSuccessHandler(function() {
-          statusEl.textContent = '';
-          nextBtn.disabled = false;
-          showSetupPhase(2);
+          // Save key then set up the doc
+          google.script.run
+            .withSuccessHandler(function() {
+              google.script.run
+                .withSuccessHandler(function(result) {
+                  btn.innerHTML = 'Activate';
+                  renderActiveState(result);
+                })
+                .withFailureHandler(function(err) {
+                  btn.disabled = false;
+                  btn.innerHTML = 'Activate';
+                  showError('activate-error', err.message || String(err));
+                })
+                .setupDoc();
+            })
+            .withFailureHandler(function(err) {
+              btn.disabled = false;
+              btn.innerHTML = 'Activate';
+              showError('activate-error', err.message || String(err));
+            })
+            .saveSettings(key);
         })
         .withFailureHandler(function(err) {
-          statusEl.textContent = 'Error: ' + (err && err.message ? err.message : String(err));
-          statusEl.className = 'error';
-          nextBtn.disabled = false;
+          btn.disabled = false;
+          btn.innerHTML = 'Activate';
+          showError('activate-error', err.message || String(err));
         })
-        .saveSettings(apiKey);
+        .testApiKey(key);
     });
 
-    // ── Setup Panel — Phase 2 ────────────────────────────────────────────────
+    // ── Deactivate ───────────────────────────────────────────────────────────
 
-    document.getElementById('activate-btn').addEventListener('click', function() {
-      var activateBtn = document.getElementById('activate-btn');
-      var activateStatus = document.getElementById('activate-status');
-
-      activateBtn.disabled = true;
-      activateStatus.className = '';
-      activateStatus.innerHTML = '<span class="spinner"></span> Activating\u2026';
-
-      google.script.run
-        .withSuccessHandler(function(result) {
-          activateBtn.disabled = false;
-          activateStatus.className = 'success';
-          var expiryText = result && result.expiresAt ? result.expiresAt : 'in 7 days';
-          activateStatus.textContent = 'Auto-reply active! Expires ' + expiryText + '.';
-          setTimeout(function() {
-            loadInvocations();
-          }, 1500);
-        })
-        .withFailureHandler(function(err) {
-          activateBtn.disabled = false;
-          activateStatus.className = 'error';
-          activateStatus.textContent = 'Error: ' + (err && err.message ? err.message : String(err));
-        })
-        .setupDoc();
-    });
-
-    // ── Settings link → back to setup ────────────────────────────────────────
-
-    document.getElementById('settings-link').addEventListener('click', function() {
-      showSetupPhase(1);
-      showPanel('setup');
-    });
-
-    // ── Refresh ──────────────────────────────────────────────────────────────
-
-    document.getElementById('refresh-btn').addEventListener('click', function() {
-      var btn = document.getElementById('refresh-btn');
+    document.getElementById('deactivate-btn').addEventListener('click', function() {
+      var btn = document.getElementById('deactivate-btn');
+      clearError('deactivate-error');
       btn.disabled = true;
-      loadInvocations();
-      setTimeout(function() { btn.disabled = false; }, 1500);
-    });
+      btn.innerHTML = '<span class="spinner dark"></span> Deactivating\u2026';
 
-    // ── Reactivate (from expired watch status bar) ────────────────────────────
-
-    document.getElementById('reactivate-btn').addEventListener('click', function() {
-      showSetupPhase(2);
-      showPanel('setup');
-    });
-
-    // ── Watch Status ─────────────────────────────────────────────────────────
-
-    function loadWatchStatus() {
       google.script.run
-        .withSuccessHandler(renderWatchStatus)
-        .withFailureHandler(function() {
-          // silently ignore; bar stays hidden
+        .withSuccessHandler(function() {
+          btn.innerHTML = 'Deactivate';
+          // Clear input and key status before showing setup
+          document.getElementById('api-key-input').value = '';
+          document.getElementById('key-status').textContent = '';
+          document.getElementById('key-status').className = 'key-status';
+          keyValid = false;
+          document.getElementById('activate-btn').disabled = true;
+          showState('setup');
         })
-        .getWatchStatus();
-    }
-
-    function renderWatchStatus(status) {
-      var bar = document.getElementById('watch-status-bar');
-      var dot = document.getElementById('watch-dot');
-      var text = document.getElementById('watch-status-text');
-      var reactivateBtn = document.getElementById('reactivate-btn');
-
-      if (!status || (!status.active && !status.expired)) {
-        bar.className = '';
-        bar.style.display = 'none';
-        return;
-      }
-
-      if (status.active) {
-        bar.className = 'active';
-        dot.className = 'watch-dot green';
-        text.textContent = 'Auto-reply active';
-        reactivateBtn.style.display = 'none';
-      } else if (status.expired) {
-        bar.className = 'expired';
-        dot.className = 'watch-dot yellow';
-        text.textContent = 'Auto-reply expired \u2014 click to reactivate';
-        reactivateBtn.style.display = '';
-      }
-    }
-
-    // ── Load Invocations ─────────────────────────────────────────────────────
-
-    function loadInvocations() {
-      google.script.run
-        .withSuccessHandler(onInvocationsLoaded)
         .withFailureHandler(function(err) {
-          showPanel('main');
-          showError(err && err.message ? err.message : String(err));
+          btn.disabled = false;
+          btn.innerHTML = 'Deactivate';
+          showError('deactivate-error', err.message || String(err));
         })
-        .getPendingInvocations();
-    }
+        .deactivateDoc();
+    });
 
-    function onInvocationsLoaded(result) {
-      if (result.needsSetup) {
-        showSetupPhase(1);
-        showPanel('setup');
-        return;
-      }
+    // ── Render Active State ───────────────────────────────────────────────────
 
-      showPanel('main');
-      loadWatchStatus();
-      pendingItems = result.pending || [];
-      renderCards(pendingItems);
-    }
-
-    // ── Render Cards ─────────────────────────────────────────────────────────
-
-    function renderCards(items) {
-      var container = document.getElementById('cards-container');
-      var runAllBar = document.getElementById('run-all-bar');
-      var countLabel = document.getElementById('pending-count-label');
-      var runAllBtn = document.getElementById('run-all-btn');
-      var limitWarning = document.getElementById('limit-warning');
-      var errorBanner = document.getElementById('error-banner');
-
-      errorBanner.style.display = 'none';
-      container.innerHTML = '';
-
-      if (items.length === 0) {
-        var empty = document.createElement('p');
-        empty.className = 'empty-state';
-        empty.textContent = 'No pending @claude comments.';
-        container.appendChild(empty);
-        runAllBar.classList.remove('visible');
-        limitWarning.style.display = 'none';
-        return;
-      }
-
-      runAllBar.classList.add('visible');
-      countLabel.textContent = items.length + ' pending comment' + (items.length === 1 ? '' : 's');
-
-      if (items.length > 8) {
-        limitWarning.style.display = 'block';
+    function renderActiveState(status) {
+      var expiresEl = document.getElementById('expires-text');
+      if (status && status.expiresAt) {
+        expiresEl.textContent = 'Active until ' + status.expiresAt;
       } else {
-        limitWarning.style.display = 'none';
+        expiresEl.textContent = '';
       }
-
-      for (var i = 0; i < items.length; i++) {
-        container.appendChild(createCard(items[i], i));
-      }
-
-      runAllBtn.onclick = runAll;
-    }
-
-    function createCard(item, index) {
-      var card = document.createElement('div');
-      card.className = 'card';
-      card.dataset.index = index;
-
-      var body = document.createElement('div');
-      body.className = 'card-body';
-
-      if (item.anchorText) {
-        var anchor = document.createElement('div');
-        anchor.className = 'card-anchor';
-        anchor.textContent = item.anchorText;
-        body.appendChild(anchor);
-      }
-
-      var prompt = document.createElement('div');
-      prompt.className = 'card-prompt';
-      prompt.textContent = item.prompt || '(no prompt text)';
-      body.appendChild(prompt);
-
-      var footer = document.createElement('div');
-      footer.className = 'card-footer';
-
-      var statusEl = document.createElement('div');
-      statusEl.className = 'card-status';
-
-      var runBtn = document.createElement('button');
-      runBtn.className = 'run-btn';
-      runBtn.textContent = 'Run';
-      runBtn.dataset.index = index;
-      runBtn.onclick = (function(idx) {
-        return function() { runSingle(idx); };
-      })(index);
-
-      footer.appendChild(statusEl);
-      footer.appendChild(runBtn);
-      body.appendChild(footer);
-      card.appendChild(body);
-
-      return card;
-    }
-
-    function getCardEls(index) {
-      var card = document.querySelector('.card[data-index="' + index + '"]');
-      if (!card) return null;
-      return {
-        status: card.querySelector('.card-status'),
-        btn: card.querySelector('.run-btn')
-      };
-    }
-
-    function setCardLoading(index) {
-      var els = getCardEls(index);
-      if (!els) return;
-      els.status.className = 'card-status loading';
-      els.status.innerHTML = '<span class="spinner"></span> Running\u2026';
-      els.btn.disabled = true;
-    }
-
-    function setCardDone(index) {
-      var els = getCardEls(index);
-      if (!els) return;
-      els.status.className = 'card-status done';
-      els.status.textContent = 'Done.';
-      els.btn.disabled = true;
-    }
-
-    function setCardError(index, msg) {
-      var els = getCardEls(index);
-      if (!els) return;
-      els.status.className = 'card-status error';
-      els.status.textContent = msg;
-      els.btn.disabled = false;
-    }
-
-    // ── Run Single ───────────────────────────────────────────────────────────
-
-    function runSingle(index) {
-      var item = pendingItems[index];
-      if (!item) return;
-
-      runningCount++;
-      updateRunAllBtn();
-      setCardLoading(index);
-
-      google.script.run
-        .withSuccessHandler((function(idx) {
-          return function() {
-            runningCount--;
-            updateRunAllBtn();
-            setCardDone(idx);
-          };
-        })(index))
-        .withFailureHandler((function(idx) {
-          return function(err) {
-            runningCount--;
-            updateRunAllBtn();
-            setCardError(idx, err && err.message ? err.message : String(err));
-          };
-        })(index))
-        .processInvocation(item.commentId, item.replyId);
-    }
-
-    // ── Run All ──────────────────────────────────────────────────────────────
-
-    function runAll() {
-      for (var i = 0; i < pendingItems.length; i++) {
-        var els = getCardEls(i);
-        // Skip cards already done or loading
-        if (els && !els.btn.disabled) {
-          runSingle(i);
-        }
-      }
-    }
-
-    function updateRunAllBtn() {
-      var runAllBtn = document.getElementById('run-all-btn');
-      if (runAllBtn) {
-        runAllBtn.disabled = runningCount > 0;
-      }
+      showState('active');
     }
 
     // ── Init ─────────────────────────────────────────────────────────────────
 
     document.addEventListener('DOMContentLoaded', function() {
-      showSetupPhase(1);
-      loadInvocations();
+      google.script.run
+        .withSuccessHandler(function(status) {
+          if (status && status.active) {
+            renderActiveState(status);
+          } else {
+            showState('setup');
+          }
+        })
+        .withFailureHandler(function() {
+          showState('setup');
+        })
+        .getWatchStatus();
     });
   </script>
 </body>
