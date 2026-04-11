@@ -68,13 +68,16 @@ function setupDoc() {
   var channelToken = Utilities.getUuid();
   var expiration = Date.now() + WATCH_DURATION_MS;
 
-  Drive.Files.watch(docId, {
-    id: channelId,
-    type: 'web_hook',
-    address: WORKER_WEBHOOK_URL,
-    token: channelToken,
-    expiration: String(expiration)
-  });
+  Drive.Files.watch(
+    {
+      id: channelId,
+      type: 'web_hook',
+      address: WORKER_WEBHOOK_URL,
+      token: channelToken,
+      expiration: expiration
+    },
+    docId
+  );
 
   // Step 3: Register with Cloudflare Worker
   var registerSecret = PropertiesService.getScriptProperties().getProperty('REGISTER_SECRET');
