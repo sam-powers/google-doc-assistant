@@ -27,12 +27,12 @@ async function handleRegister(request, env) {
     return new Response('Invalid JSON', { status: 400 });
   }
 
-  const { channelToken, channelId, docId, anthropicApiKey } = body;
+  const { channelToken, channelId, docId, anthropicApiKey, activatedAt } = body;
   if (!channelToken || !channelId || !docId || !anthropicApiKey) {
     return new Response('Missing required fields: channelToken, channelId, docId, anthropicApiKey', { status: 400 });
   }
 
-  await env.DOC_CONFIGS.put(channelToken, JSON.stringify({ docId, anthropicApiKey, channelId }));
+  await env.DOC_CONFIGS.put(channelToken, JSON.stringify({ docId, anthropicApiKey, channelId, activatedAt }));
   return new Response('OK', { status: 200 });
 }
 
@@ -165,7 +165,7 @@ async function fetchAllComments(docId, accessToken) {
   do {
     const params = new URLSearchParams({
       pageSize: '100',
-      fields: 'comments(id,content,quotedFileContent,author,resolved,replies(id,content,author)),nextPageToken',
+      fields: 'comments(id,content,createdTime,quotedFileContent,author,resolved,replies(id,content,createdTime,author)),nextPageToken',
       includeDeleted: 'false'
     });
     if (pageToken) {
@@ -472,12 +472,18 @@ async function processSingleInvocation(item, docId, anthropicApiKey, accessToken
 
 async function processDoc(config, env) {
   console.log(`[processDoc] start docId=${config.docId}`);
+
+  if (!config.activatedAt) {
+    console.log('[processDoc] no activatedAt — orphaned channel, skipping');
+    return;
+  }
+
   try {
     const accessToken = await getServiceAccountToken(env);
     console.log('[processDoc] got service account token');
 
     const comments = await fetchAllComments(config.docId, accessToken);
-    console.log(`[processDoc] fetched ${comments.length} comments`);
+    console.log(`[processDoc] fetched ${comments.length} comments, activatedAt=${new Date(config.activatedAt).toISOString()}`);
 
     const processedIds = await getProcessedIds(config.docId, env);
     console.log(`[processDoc] ${processedIds.size} already-processed IDs`);
@@ -485,6 +491,8 @@ async function processDoc(config, env) {
     const allPending = [];
     for (const comment of comments) {
       if (comment.resolved) continue;
+      // Only process comments created after this channel was activated
+      if (new Date(comment.createdTime).getTime() < config.activatedAt) continue;
       const pending = processComment(comment, SERVICE_ACCOUNT_EMAIL, processedIds);
       for (const p of pending) {
         allPending.push({ ...p, comment });

@@ -105,7 +105,8 @@ function setupDoc() {
       channelToken: channelToken,
       channelId: channelId,
       docId: docId,
-      anthropicApiKey: apiKey
+      anthropicApiKey: apiKey,
+      activatedAt: Date.now()
     }),
     muteHttpExceptions: true
   });
