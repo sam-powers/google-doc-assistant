@@ -479,14 +479,6 @@ async function processDoc(config, env) {
   }
 
   try {
-    const debounceKey = `debounce_${config.docId}`;
-    const debounced = await env.DOC_CONFIGS.get(debounceKey);
-    if (debounced) {
-      console.log(`[processDoc] debounced, skipping`);
-      return;
-    }
-    await env.DOC_CONFIGS.put(debounceKey, '1', { expirationTtl: 30 });
-
     // Wait briefly for Drive's comment index to catch up after the webhook fires
     await new Promise(r => setTimeout(r, 4000));
 
