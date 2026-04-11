@@ -63,6 +63,18 @@ function setupDoc() {
     }
   }
 
+  // Stop any existing watch channel before registering a new one
+  var oldChannelId = props.getProperty('watchChannelId');
+  var oldChannelToken = props.getProperty('watchChannelToken');
+  if (oldChannelId) {
+    try {
+      Drive.Channels.stop({ id: oldChannelId, resourceId: oldChannelToken });
+      Logger.log('Stopped old watch channel: ' + oldChannelId);
+    } catch (e) {
+      Logger.log('Could not stop old channel (may have already expired): ' + e.message);
+    }
+  }
+
   // Step 2: Register Drive Changes watch (fires on comment additions;
   // Files.watch only fires on content changes, not comments)
   var channelId = Utilities.getUuid();

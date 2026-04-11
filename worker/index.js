@@ -499,6 +499,11 @@ async function processDoc(config, env) {
         await processSingleInvocation(item, config.docId, config.anthropicApiKey, accessToken, env);
         console.log(`[processDoc] reply posted for commentId=${item.commentId}`);
       } catch (err) {
+        const msg = err.message || '';
+        if (msg.includes('429')) {
+          console.log(`[processDoc] rate limited — stopping this run, will retry on next webhook`);
+          break;
+        }
         console.error(`[processDoc] processSingleInvocation failed for commentId=${item.commentId}:`, err);
       }
     }
