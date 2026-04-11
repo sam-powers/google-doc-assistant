@@ -63,12 +63,14 @@ function setupDoc() {
     }
   }
 
-  // Step 2: Register Drive push notification watch
+  // Step 2: Register Drive Changes watch (fires on comment additions;
+  // Files.watch only fires on content changes, not comments)
   var channelId = Utilities.getUuid();
   var channelToken = Utilities.getUuid();
   var expiration = Date.now() + WATCH_DURATION_MS;
 
-  Drive.Files.watch(
+  var startPageToken = Drive.Changes.getStartPageToken().startPageToken;
+  Drive.Changes.watch(
     {
       id: channelId,
       type: 'web_hook',
@@ -76,7 +78,7 @@ function setupDoc() {
       token: channelToken,
       expiration: expiration
     },
-    docId
+    { pageToken: startPageToken }
   );
 
   // Step 3: Register with Cloudflare Worker
@@ -482,7 +484,7 @@ function processInvocation(commentId, replyId) {
 
   var payload = {
     model: 'claude-sonnet-4-5',
-    max_tokens: 4096,
+    max_tokens: 2048,
     system: systemPrompt,
     tools: [{ type: 'web_search_20250305', name: 'web_search' }],
     messages: messages
