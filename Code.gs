@@ -69,17 +69,17 @@ function setupDoc() {
   var channelToken = Utilities.getUuid();
   var expiration = Date.now() + WATCH_DURATION_MS;
 
+  // Drive.Changes.watch fires for comment additions (Files.watch does not).
+  // pageToken is a required positional string arg — do NOT wrap in an object.
   var startPageToken = Drive.Changes.getStartPageToken().startPageToken;
-  Drive.Changes.watch(
-    {
-      id: channelId,
-      type: 'web_hook',
-      address: WORKER_WEBHOOK_URL,
-      token: channelToken,
-      expiration: expiration
-    },
-    { pageToken: startPageToken }
-  );
+  var watchResource = {
+    id: channelId,
+    type: 'web_hook',
+    address: WORKER_WEBHOOK_URL,
+    token: channelToken,
+    expiration: String(expiration)
+  };
+  Drive.Changes.watch(watchResource, startPageToken);
 
   // Step 3: Register with Cloudflare Worker
   var registerSecret = PropertiesService.getScriptProperties().getProperty('REGISTER_SECRET');

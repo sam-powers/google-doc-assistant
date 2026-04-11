@@ -38,33 +38,44 @@ async function handleRegister(request, env) {
 
 async function handleWebhook(request, env, ctx) {
   const resourceState = request.headers.get('X-Goog-Resource-State');
+  const channelToken = request.headers.get('X-Goog-Channel-Token');
+  const channelId = request.headers.get('X-Goog-Channel-ID');
+  const resourceId = request.headers.get('X-Goog-Resource-ID');
+
+  console.log(`[webhook] state=${resourceState} token=${channelToken} channelId=${channelId} resourceId=${resourceId}`);
+
   if (resourceState === 'sync') {
+    console.log('[webhook] sync ping received — watch registration confirmed');
     return new Response('OK', { status: 200 });
   }
 
-  const channelToken = request.headers.get('X-Goog-Channel-Token');
-  const channelId = request.headers.get('X-Goog-Channel-ID');
-
   if (!channelToken) {
+    console.log('[webhook] no channel token, ignoring');
     return new Response('OK', { status: 200 });
   }
 
   const raw = await env.DOC_CONFIGS.get(channelToken);
   if (!raw) {
+    console.log(`[webhook] no KV config for token=${channelToken}`);
     return new Response('OK', { status: 200 });
   }
 
   let config;
   try {
     config = JSON.parse(raw);
-  } catch {
+  } catch (err) {
+    console.error('[webhook] failed to parse KV config:', err);
     return new Response('OK', { status: 200 });
   }
+
+  console.log(`[webhook] config found: docId=${config.docId} storedChannelId=${config.channelId}`);
 
   if (config.channelId !== channelId) {
+    console.log(`[webhook] channelId mismatch: got=${channelId} stored=${config.channelId}`);
     return new Response('OK', { status: 200 });
   }
 
+  console.log(`[webhook] dispatching processDoc for docId=${config.docId}`);
   ctx.waitUntil(processDoc(config, env));
   return new Response('OK', { status: 200 });
 }
@@ -72,8 +83,10 @@ async function handleWebhook(request, env, ctx) {
 async function getServiceAccountToken(env) {
   const cached = await env.DOC_CONFIGS.get('sa_token_cache');
   if (cached) {
+    console.log('[getServiceAccountToken] returning cached token');
     return cached;
   }
+  console.log('[getServiceAccountToken] cache miss, signing new JWT');
 
   const key = JSON.parse(env.SERVICE_ACCOUNT_KEY);
 
@@ -136,9 +149,11 @@ async function getServiceAccountToken(env) {
 
   const tokenData = await tokenRes.json();
   if (!tokenData.access_token) {
+    console.error('[getServiceAccountToken] token exchange failed:', JSON.stringify(tokenData));
     throw new Error(`Failed to obtain service account token: ${JSON.stringify(tokenData)}`);
   }
 
+  console.log('[getServiceAccountToken] token obtained, caching for 55min');
   await env.DOC_CONFIGS.put('sa_token_cache', tokenData.access_token, { expirationTtl: 3300 });
   return tokenData.access_token;
 }
@@ -455,24 +470,39 @@ async function processSingleInvocation(item, docId, anthropicApiKey, accessToken
 }
 
 async function processDoc(config, env) {
-  const accessToken = await getServiceAccountToken(env);
-  const comments = await fetchAllComments(config.docId, accessToken);
-  const processedIds = await getProcessedIds(config.docId, env);
+  console.log(`[processDoc] start docId=${config.docId}`);
+  try {
+    const accessToken = await getServiceAccountToken(env);
+    console.log('[processDoc] got service account token');
 
-  const allPending = [];
-  for (const comment of comments) {
-    if (comment.resolved) continue;
-    const pending = processComment(comment, SERVICE_ACCOUNT_EMAIL, processedIds);
-    for (const p of pending) {
-      allPending.push({ ...p, comment });
-    }
-  }
+    const comments = await fetchAllComments(config.docId, accessToken);
+    console.log(`[processDoc] fetched ${comments.length} comments`);
 
-  for (const item of allPending) {
-    try {
-      await processSingleInvocation(item, config.docId, config.anthropicApiKey, accessToken, env);
-    } catch (err) {
-      console.error('processSingleInvocation error:', err);
+    const processedIds = await getProcessedIds(config.docId, env);
+    console.log(`[processDoc] ${processedIds.size} already-processed IDs`);
+
+    const allPending = [];
+    for (const comment of comments) {
+      if (comment.resolved) continue;
+      const pending = processComment(comment, SERVICE_ACCOUNT_EMAIL, processedIds);
+      for (const p of pending) {
+        allPending.push({ ...p, comment });
+      }
     }
+
+    console.log(`[processDoc] ${allPending.length} pending invocations`);
+
+    for (const item of allPending) {
+      console.log(`[processDoc] processing commentId=${item.commentId} prompt="${item.prompt.slice(0, 80)}"`);
+      try {
+        await processSingleInvocation(item, config.docId, config.anthropicApiKey, accessToken, env);
+        console.log(`[processDoc] reply posted for commentId=${item.commentId}`);
+      } catch (err) {
+        console.error(`[processDoc] processSingleInvocation failed for commentId=${item.commentId}:`, err);
+      }
+    }
+    console.log('[processDoc] done');
+  } catch (err) {
+    console.error('[processDoc] fatal error:', err);
   }
 }
