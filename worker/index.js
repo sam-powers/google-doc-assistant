@@ -502,11 +502,20 @@ async function processDoc(config, env) {
     console.log(`[processDoc] ${allPending.length} pending invocations`);
 
     for (const item of allPending) {
+      const lockKey = `processing_${item.commentId}`;
+      const locked = await env.DOC_CONFIGS.get(lockKey);
+      if (locked) {
+        console.log(`[processDoc] commentId=${item.commentId} already in-flight, skipping`);
+        continue;
+      }
+      await env.DOC_CONFIGS.put(lockKey, '1', { expirationTtl: 300 });
+
       console.log(`[processDoc] processing commentId=${item.commentId} prompt="${item.prompt.slice(0, 80)}"`);
       try {
         await processSingleInvocation(item, config.docId, config.anthropicApiKey, accessToken, env);
         console.log(`[processDoc] reply posted for commentId=${item.commentId}`);
       } catch (err) {
+        await env.DOC_CONFIGS.delete(lockKey);
         const msg = err.message || '';
         if (msg.includes('429')) {
           console.log(`[processDoc] rate limited — stopping this run, will retry on next webhook`);
