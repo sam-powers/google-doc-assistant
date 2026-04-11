@@ -107,7 +107,8 @@ function setupDoc() {
       docId: docId,
       anthropicApiKey: apiKey,
       activatedAt: Date.now(),
-      ownerEmail: Session.getActiveUser().getEmail()
+      ownerEmail: Session.getActiveUser().getEmail(),
+      ownerPermissionId: Drive.About.get({ fields: 'user' }).user.permissionId
     }),
     muteHttpExceptions: true
   });

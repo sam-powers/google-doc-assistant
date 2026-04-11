@@ -27,12 +27,12 @@ async function handleRegister(request, env) {
     return new Response('Invalid JSON', { status: 400 });
   }
 
-  const { channelToken, channelId, docId, anthropicApiKey, activatedAt, ownerEmail } = body;
+  const { channelToken, channelId, docId, anthropicApiKey, activatedAt, ownerEmail, ownerPermissionId } = body;
   if (!channelToken || !channelId || !docId || !anthropicApiKey) {
     return new Response('Missing required fields: channelToken, channelId, docId, anthropicApiKey', { status: 400 });
   }
 
-  await env.DOC_CONFIGS.put(channelToken, JSON.stringify({ docId, anthropicApiKey, channelId, activatedAt, ownerEmail }));
+  await env.DOC_CONFIGS.put(channelToken, JSON.stringify({ docId, anthropicApiKey, channelId, activatedAt, ownerEmail, ownerPermissionId }));
   return new Response('OK', { status: 200 });
 }
 
@@ -491,22 +491,20 @@ async function processDoc(config, env) {
     const processedIds = await getProcessedIds(config.docId, env);
     console.log(`[processDoc] ${processedIds.size} already-processed IDs`);
 
-    const ownerEmail = (config.ownerEmail || '').toLowerCase();
-    console.log(`[processDoc] ownerEmail filter=${ownerEmail || 'none'}`);
+    const ownerPermissionId = config.ownerPermissionId || '';
+    console.log(`[processDoc] owner permissionId=${ownerPermissionId || 'none'}`);
     const allPending = [];
     for (const comment of comments) {
       if (comment.resolved) continue;
       const commentAge = new Date(comment.createdTime).getTime();
       const isNew = commentAge >= config.activatedAt;
       const hasAtClaude = /@claude/i.test(comment.content);
-      const commentAuthor = authorEmail(comment);
+      const commentPermissionId = comment.author?.permissionId || '';
       if (hasAtClaude) {
-        console.log(`[processDoc] @claude comment id=${comment.id} createdTime=${comment.createdTime} isNew=${isNew} author=${commentAuthor} ownerMatch=${!ownerEmail || commentAuthor === ownerEmail}`);
+        console.log(`[processDoc] @claude comment id=${comment.id} isNew=${isNew} permissionId=${commentPermissionId} ownerMatch=${!ownerPermissionId || commentPermissionId === ownerPermissionId}`);
       }
-      // Only process comments created after this channel was activated
       if (!isNew) continue;
-      // Only process comments authored by the user who activated the add-on
-      if (ownerEmail && commentAuthor !== ownerEmail) continue;
+      if (ownerPermissionId && commentPermissionId !== ownerPermissionId) continue;
       const pending = processComment(comment, SERVICE_ACCOUNT_EMAIL, processedIds);
       for (const p of pending) {
         allPending.push({ ...p, comment });
