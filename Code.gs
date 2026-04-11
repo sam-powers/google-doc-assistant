@@ -106,7 +106,8 @@ function setupDoc() {
       channelId: channelId,
       docId: docId,
       anthropicApiKey: apiKey,
-      activatedAt: Date.now()
+      activatedAt: Date.now(),
+      ownerEmail: Session.getActiveUser().getEmail()
     }),
     muteHttpExceptions: true
   });

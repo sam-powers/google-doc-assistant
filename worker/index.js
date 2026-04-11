@@ -27,12 +27,12 @@ async function handleRegister(request, env) {
     return new Response('Invalid JSON', { status: 400 });
   }
 
-  const { channelToken, channelId, docId, anthropicApiKey, activatedAt } = body;
+  const { channelToken, channelId, docId, anthropicApiKey, activatedAt, ownerEmail } = body;
   if (!channelToken || !channelId || !docId || !anthropicApiKey) {
     return new Response('Missing required fields: channelToken, channelId, docId, anthropicApiKey', { status: 400 });
   }
 
-  await env.DOC_CONFIGS.put(channelToken, JSON.stringify({ docId, anthropicApiKey, channelId, activatedAt }));
+  await env.DOC_CONFIGS.put(channelToken, JSON.stringify({ docId, anthropicApiKey, channelId, activatedAt, ownerEmail }));
   return new Response('OK', { status: 200 });
 }
 
@@ -488,11 +488,14 @@ async function processDoc(config, env) {
     const processedIds = await getProcessedIds(config.docId, env);
     console.log(`[processDoc] ${processedIds.size} already-processed IDs`);
 
+    const ownerEmail = (config.ownerEmail || '').toLowerCase();
     const allPending = [];
     for (const comment of comments) {
       if (comment.resolved) continue;
       // Only process comments created after this channel was activated
       if (new Date(comment.createdTime).getTime() < config.activatedAt) continue;
+      // Only process comments authored by the user who activated the add-on
+      if (ownerEmail && authorEmail(comment) !== ownerEmail) continue;
       const pending = processComment(comment, SERVICE_ACCOUNT_EMAIL, processedIds);
       for (const p of pending) {
         allPending.push({ ...p, comment });
