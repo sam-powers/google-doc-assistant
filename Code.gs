@@ -1,3 +1,9 @@
+// ─── v2 Constants ─────────────────────────────────────────────────────────────
+var SERVICE_ACCOUNT_EMAIL = 'claude-assistant@claude-doc-assistant.iam.gserviceaccount.com';
+var WORKER_WEBHOOK_URL = 'https://claude-doc-assistant.PLACEHOLDER.workers.dev/webhook';
+var WORKER_REGISTER_URL = 'https://claude-doc-assistant.PLACEHOLDER.workers.dev/register';
+var WATCH_DURATION_MS = 6 * 24 * 60 * 60 * 1000; // 6 days in ms
+
 // ─── Menu ────────────────────────────────────────────────────────────────────
 
 function onOpen(e) {
@@ -24,14 +30,146 @@ function getSettings() {
   var props = PropertiesService.getUserProperties();
   return {
     apiKey: props.getProperty('anthropicApiKey') || '',
-    claudeEmail: props.getProperty('claudeEmail') || ''
+    claudeEmail: SERVICE_ACCOUNT_EMAIL
   };
 }
 
-function saveSettings(apiKey, claudeEmail) {
+function saveSettings(apiKey) {
   var props = PropertiesService.getUserProperties();
   props.setProperty('anthropicApiKey', apiKey);
-  props.setProperty('claudeEmail', claudeEmail.toLowerCase().trim());
+}
+
+// ─── Watch Setup ──────────────────────────────────────────────────────────────
+
+function setupDoc() {
+  var props = PropertiesService.getUserProperties();
+  var apiKey = props.getProperty('anthropicApiKey');
+  if (!apiKey) throw new Error('API key not saved. Please complete step 1 first.');
+
+  var docId = DocumentApp.getActiveDocument().getId();
+
+  // Step 1: Share doc with service account as commenter
+  try {
+    Drive.Permissions.create(
+      { role: 'commenter', type: 'user', emailAddress: SERVICE_ACCOUNT_EMAIL },
+      docId,
+      { sendNotificationEmail: false, fields: 'id' }
+    );
+  } catch (e) {
+    // Ignore if already has access
+    if (e.message && e.message.toLowerCase().indexOf('already') === -1 &&
+        e.message.toLowerCase().indexOf('duplicate') === -1) {
+      throw new Error('Could not share document with Claude: ' + e.message);
+    }
+  }
+
+  // Step 2: Register Drive push notification watch
+  var channelId = Utilities.getUuid();
+  var channelToken = Utilities.getUuid();
+  var expiration = Date.now() + WATCH_DURATION_MS;
+
+  Drive.Files.watch(docId, {
+    id: channelId,
+    type: 'web_hook',
+    address: WORKER_WEBHOOK_URL,
+    token: channelToken,
+    expiration: String(expiration)
+  });
+
+  // Step 3: Register with Cloudflare Worker
+  var registerSecret = PropertiesService.getScriptProperties().getProperty('REGISTER_SECRET');
+  var response = UrlFetchApp.fetch(WORKER_REGISTER_URL, {
+    method: 'post',
+    headers: {
+      'Authorization': 'Bearer ' + registerSecret,
+      'Content-Type': 'application/json'
+    },
+    payload: JSON.stringify({
+      channelToken: channelToken,
+      channelId: channelId,
+      docId: docId,
+      anthropicApiKey: apiKey
+    }),
+    muteHttpExceptions: true
+  });
+
+  if (response.getResponseCode() !== 200) {
+    throw new Error('Worker registration failed: ' + response.getContentText());
+  }
+
+  // Step 4: Store watch metadata for renewal
+  props.setProperty('watchChannelId', channelId);
+  props.setProperty('watchChannelToken', channelToken);
+  props.setProperty('watchExpiration', String(expiration));
+  props.setProperty('watchDocId', docId);
+
+  // Step 5: Install daily renewal trigger
+  installRenewalTrigger();
+
+  var expiresAt = new Date(expiration).toLocaleDateString();
+  return { success: true, expiresAt: expiresAt };
+}
+
+function renewWatch() {
+  var props = PropertiesService.getUserProperties();
+  var expiration = parseInt(props.getProperty('watchExpiration') || '0', 10);
+  var docId = props.getProperty('watchDocId');
+
+  if (!expiration || !docId) return;
+
+  var now = Date.now();
+  var twentyFourHours = 24 * 60 * 60 * 1000;
+
+  if (expiration - now > twentyFourHours) return; // Not expiring soon
+
+  // Stop the old channel (best-effort)
+  var oldChannelId = props.getProperty('watchChannelId');
+  var oldChannelToken = props.getProperty('watchChannelToken');
+  if (oldChannelId && oldChannelToken) {
+    try {
+      Drive.Channels.stop({ id: oldChannelId, resourceId: oldChannelToken });
+    } catch (e) {
+      Logger.log('Could not stop old channel: ' + e.message);
+    }
+  }
+
+  // Re-register
+  setupDoc();
+}
+
+function installRenewalTrigger() {
+  // Remove existing renewWatch triggers for this script
+  var triggers = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === 'renewWatch') {
+      ScriptApp.deleteTrigger(triggers[i]);
+    }
+  }
+  ScriptApp.newTrigger('renewWatch')
+    .timeBased()
+    .everyDays(1)
+    .create();
+}
+
+function getWatchStatus() {
+  var props = PropertiesService.getUserProperties();
+  var channelId = props.getProperty('watchChannelId');
+  var expiration = parseInt(props.getProperty('watchExpiration') || '0', 10);
+
+  if (!channelId || !expiration) {
+    return { active: false };
+  }
+
+  var now = Date.now();
+  if (expiration < now) {
+    return { active: false, expired: true };
+  }
+
+  return {
+    active: true,
+    expiresAt: new Date(expiration).toLocaleDateString(),
+    hoursRemaining: Math.floor((expiration - now) / (1000 * 60 * 60))
+  };
 }
 
 // ─── Document Context ─────────────────────────────────────────────────────────

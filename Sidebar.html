@@ -93,7 +93,7 @@
       transition: background 0.15s;
     }
 
-    .btn-primary:hover {
+    .btn-primary:hover:not(:disabled) {
       background: #1557b0;
     }
 
@@ -115,6 +115,125 @@
 
     #setup-status.error {
       color: #c5221f;
+    }
+
+    /* ── Setup Phase 2 ── */
+    #setup-phase-1,
+    #setup-phase-2 {
+      display: none;
+    }
+
+    #setup-phase-1.active,
+    #setup-phase-2.active {
+      display: block;
+    }
+
+    .phase2-description {
+      font-size: 12px;
+      color: #5f6368;
+      line-height: 1.5;
+      margin-bottom: 16px;
+      padding: 10px 12px;
+      background: #f8f9fa;
+      border-radius: 4px;
+      border-left: 3px solid #1a73e8;
+    }
+
+    #activate-btn {
+      width: 100%;
+      padding: 10px 18px;
+      background: #188038;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    #activate-btn:hover:not(:disabled) {
+      background: #146c2e;
+    }
+
+    #activate-btn:disabled {
+      background: #dadce0;
+      color: #80868b;
+      cursor: not-allowed;
+    }
+
+    #activate-status {
+      margin-top: 10px;
+      font-size: 12px;
+      min-height: 16px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    #activate-status.success {
+      color: #188038;
+    }
+
+    #activate-status.error {
+      color: #c5221f;
+    }
+
+    /* ── Watch Status Bar ── */
+    #watch-status-bar {
+      display: none;
+      padding: 7px 16px;
+      border-bottom: 1px solid #dadce0;
+      font-size: 12px;
+      align-items: center;
+      gap: 6px;
+    }
+
+    #watch-status-bar.active {
+      display: flex;
+      background: #e6f4ea;
+    }
+
+    #watch-status-bar.expired {
+      display: flex;
+      background: #fef7e0;
+    }
+
+    .watch-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .watch-dot.green {
+      background: #188038;
+    }
+
+    .watch-dot.yellow {
+      background: #f9ab00;
+    }
+
+    #watch-status-text {
+      flex: 1;
+      color: #3c4043;
+    }
+
+    #reactivate-btn {
+      padding: 4px 10px;
+      background: #fff;
+      color: #5d4037;
+      border: 1px solid #f9ab00;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.15s;
+    }
+
+    #reactivate-btn:hover {
+      background: #fef7e0;
     }
 
     /* ── Main Panel ── */
@@ -353,26 +472,35 @@
   <!-- ── Setup Panel ── -->
   <div id="setup-panel">
     <h2>Setup</h2>
-    <p class="subtitle">Enter your Anthropic API key and the Google account email you use for this doc.</p>
+    <p class="subtitle">Connect your Anthropic API key to get started.</p>
 
-    <div class="form-group">
-      <label for="api-key-input">Anthropic API Key</label>
-      <div style="display:flex;gap:6px;align-items:center;">
-        <input type="password" id="api-key-input" placeholder="sk-ant-…" autocomplete="off" style="flex:1">
-        <button id="test-api-btn" style="padding:8px 10px;background:#f1f3f4;color:#3c4043;border:1px solid #dadce0;border-radius:4px;font-size:12px;cursor:pointer;white-space:nowrap;">Test</button>
+    <!-- Phase 1: API key + Test -->
+    <div id="setup-phase-1">
+      <div class="form-group">
+        <label for="api-key-input">Anthropic API Key</label>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <input type="password" id="api-key-input" placeholder="sk-ant-…" autocomplete="off" style="flex:1">
+          <button id="test-api-btn" style="padding:8px 10px;background:#f1f3f4;color:#3c4043;border:1px solid #dadce0;border-radius:4px;font-size:12px;cursor:pointer;white-space:nowrap;">Test</button>
+        </div>
+        <div id="api-test-status" style="font-size:11px;margin-top:4px;min-height:14px;"></div>
+        <p class="hint">Get yours at console.anthropic.com</p>
       </div>
-      <div id="api-test-status" style="font-size:11px;margin-top:4px;min-height:14px;"></div>
-      <p class="hint">Get yours at console.anthropic.com</p>
+
+      <button class="btn-primary" id="next-btn" disabled>Next &rarr;</button>
+      <div id="setup-status"></div>
     </div>
 
-    <div class="form-group">
-      <label for="email-input">Your Google Account Email</label>
-      <input type="email" id="email-input" placeholder="you@gmail.com" autocomplete="off">
-      <p class="hint">Used to identify your replies and avoid duplicate responses.</p>
-    </div>
+    <!-- Phase 2: Activate Auto-Reply -->
+    <div id="setup-phase-2">
+      <p class="phase2-description">
+        Auto-reply sets up a watch on this document so Claude can respond to
+        <strong>@claude</strong> comments automatically. The watch expires after
+        7 days and can be renewed here at any time.
+      </p>
 
-    <button class="btn-primary" id="save-btn">Save</button>
-    <div id="setup-status"></div>
+      <button id="activate-btn">Activate Auto-Reply</button>
+      <div id="activate-status"></div>
+    </div>
   </div>
 
   <!-- ── Main Panel ── -->
@@ -380,9 +508,16 @@
     <div id="main-header">
       <h1>Claude Assistant</h1>
       <div style="display:flex;gap:10px;align-items:center;">
-        <button id="refresh-btn">↻</button>
+        <button id="refresh-btn">&#x21BB;</button>
         <button id="settings-link">Settings</button>
       </div>
+    </div>
+
+    <!-- Watch status bar (hidden until getWatchStatus resolves) -->
+    <div id="watch-status-bar">
+      <span class="watch-dot" id="watch-dot"></span>
+      <span id="watch-status-text"></span>
+      <button id="reactivate-btn" style="display:none;">Reactivate</button>
     </div>
 
     <div id="error-banner"></div>
@@ -417,6 +552,12 @@
       document.getElementById(name + '-panel').classList.add('visible');
     }
 
+    function showSetupPhase(phase) {
+      document.getElementById('setup-phase-1').classList.remove('active');
+      document.getElementById('setup-phase-2').classList.remove('active');
+      document.getElementById('setup-phase-' + phase).classList.add('active');
+    }
+
     function showError(msg) {
       var banner = document.getElementById('error-banner');
       banner.textContent = typeof msg === 'string' ? msg : (msg && msg.message ? msg.message : String(msg));
@@ -428,73 +569,112 @@
     var pendingItems = [];
     var runningCount = 0;
 
-    // ── Setup Panel ──────────────────────────────────────────────────────────
+    // ── Setup Panel — Phase 1 ────────────────────────────────────────────────
 
     document.getElementById('test-api-btn').addEventListener('click', function() {
       var apiKey = document.getElementById('api-key-input').value.trim();
       var statusEl = document.getElementById('api-test-status');
-      var btn = document.getElementById('test-api-btn');
+      var testBtn = document.getElementById('test-api-btn');
+      var nextBtn = document.getElementById('next-btn');
+
       if (!apiKey) {
         statusEl.style.color = '#c5221f';
         statusEl.textContent = 'Enter an API key first.';
         return;
       }
-      btn.disabled = true;
+
+      testBtn.disabled = true;
+      nextBtn.disabled = true;
       statusEl.style.color = '#5f6368';
-      statusEl.textContent = 'Testing…';
+      statusEl.textContent = 'Testing\u2026';
+
       google.script.run
         .withSuccessHandler(function(result) {
-          btn.disabled = false;
+          testBtn.disabled = false;
           if (result.ok) {
             statusEl.style.color = '#188038';
-            statusEl.textContent = '✓ API key is valid';
+            statusEl.textContent = '\u2713 API key is valid';
+            nextBtn.disabled = false;
           } else {
             statusEl.style.color = '#c5221f';
-            statusEl.textContent = '✗ ' + result.error;
+            statusEl.textContent = '\u2717 ' + result.error;
+            nextBtn.disabled = true;
           }
         })
         .withFailureHandler(function(err) {
-          btn.disabled = false;
+          testBtn.disabled = false;
+          nextBtn.disabled = true;
           statusEl.style.color = '#c5221f';
-          statusEl.textContent = '✗ ' + (err.message || String(err));
+          statusEl.textContent = '\u2717 ' + (err.message || String(err));
         })
         .testApiKey(apiKey);
     });
 
-    document.getElementById('save-btn').addEventListener('click', function() {
+    document.getElementById('next-btn').addEventListener('click', function() {
       var apiKey = document.getElementById('api-key-input').value.trim();
-      var email = document.getElementById('email-input').value.trim();
       var statusEl = document.getElementById('setup-status');
-      var saveBtn = document.getElementById('save-btn');
+      var nextBtn = document.getElementById('next-btn');
 
-      if (!apiKey || !email) {
-        statusEl.textContent = 'Please fill in both fields.';
+      if (!apiKey) {
+        statusEl.textContent = 'Please enter an API key.';
         statusEl.className = 'error';
         return;
       }
 
-      saveBtn.disabled = true;
+      nextBtn.disabled = true;
       statusEl.textContent = 'Saving\u2026';
       statusEl.className = '';
 
       google.script.run
         .withSuccessHandler(function() {
-          statusEl.textContent = 'Saved! Loading comments\u2026';
-          statusEl.className = 'success';
-          saveBtn.disabled = false;
-          loadInvocations();
+          statusEl.textContent = '';
+          nextBtn.disabled = false;
+          showSetupPhase(2);
         })
         .withFailureHandler(function(err) {
           statusEl.textContent = 'Error: ' + (err && err.message ? err.message : String(err));
           statusEl.className = 'error';
-          saveBtn.disabled = false;
+          nextBtn.disabled = false;
         })
-        .saveSettings(apiKey, email);
+        .saveSettings(apiKey);
     });
 
+    // ── Setup Panel — Phase 2 ────────────────────────────────────────────────
+
+    document.getElementById('activate-btn').addEventListener('click', function() {
+      var activateBtn = document.getElementById('activate-btn');
+      var activateStatus = document.getElementById('activate-status');
+
+      activateBtn.disabled = true;
+      activateStatus.className = '';
+      activateStatus.innerHTML = '<span class="spinner"></span> Activating\u2026';
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          activateBtn.disabled = false;
+          activateStatus.className = 'success';
+          var expiryText = result && result.expiresAt ? result.expiresAt : 'in 7 days';
+          activateStatus.textContent = 'Auto-reply active! Expires ' + expiryText + '.';
+          setTimeout(function() {
+            loadInvocations();
+          }, 1500);
+        })
+        .withFailureHandler(function(err) {
+          activateBtn.disabled = false;
+          activateStatus.className = 'error';
+          activateStatus.textContent = 'Error: ' + (err && err.message ? err.message : String(err));
+        })
+        .setupDoc();
+    });
+
+    // ── Settings link → back to setup ────────────────────────────────────────
+
     document.getElementById('settings-link').addEventListener('click', function() {
+      showSetupPhase(1);
       showPanel('setup');
     });
+
+    // ── Refresh ──────────────────────────────────────────────────────────────
 
     document.getElementById('refresh-btn').addEventListener('click', function() {
       var btn = document.getElementById('refresh-btn');
@@ -502,6 +682,49 @@
       loadInvocations();
       setTimeout(function() { btn.disabled = false; }, 1500);
     });
+
+    // ── Reactivate (from expired watch status bar) ────────────────────────────
+
+    document.getElementById('reactivate-btn').addEventListener('click', function() {
+      showSetupPhase(2);
+      showPanel('setup');
+    });
+
+    // ── Watch Status ─────────────────────────────────────────────────────────
+
+    function loadWatchStatus() {
+      google.script.run
+        .withSuccessHandler(renderWatchStatus)
+        .withFailureHandler(function() {
+          // silently ignore; bar stays hidden
+        })
+        .getWatchStatus();
+    }
+
+    function renderWatchStatus(status) {
+      var bar = document.getElementById('watch-status-bar');
+      var dot = document.getElementById('watch-dot');
+      var text = document.getElementById('watch-status-text');
+      var reactivateBtn = document.getElementById('reactivate-btn');
+
+      if (!status || (!status.active && !status.expired)) {
+        bar.className = '';
+        bar.style.display = 'none';
+        return;
+      }
+
+      if (status.active) {
+        bar.className = 'active';
+        dot.className = 'watch-dot green';
+        text.textContent = 'Auto-reply active';
+        reactivateBtn.style.display = 'none';
+      } else if (status.expired) {
+        bar.className = 'expired';
+        dot.className = 'watch-dot yellow';
+        text.textContent = 'Auto-reply expired \u2014 click to reactivate';
+        reactivateBtn.style.display = '';
+      }
+    }
 
     // ── Load Invocations ─────────────────────────────────────────────────────
 
@@ -517,11 +740,13 @@
 
     function onInvocationsLoaded(result) {
       if (result.needsSetup) {
+        showSetupPhase(1);
         showPanel('setup');
         return;
       }
 
       showPanel('main');
+      loadWatchStatus();
       pendingItems = result.pending || [];
       renderCards(pendingItems);
     }
@@ -690,6 +915,7 @@
     // ── Init ─────────────────────────────────────────────────────────────────
 
     document.addEventListener('DOMContentLoaded', function() {
+      showSetupPhase(1);
       loadInvocations();
     });
   </script>
