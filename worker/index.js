@@ -205,17 +205,21 @@ function containsAtClaude(content) {
   return /@claude/i.test(content);
 }
 
+function authorEmail(reply) {
+  return (reply?.author?.emailAddress || '').toLowerCase();
+}
+
 function processComment(comment, claudeEmail, processedIds) {
   const pending = [];
   const replies = comment.replies || [];
   const anchorText = comment.quotedFileContent?.value || '';
+  const lowerClaude = claudeEmail.toLowerCase();
 
   if (containsAtClaude(comment.content)) {
     const lastReply = replies.length > 0 ? replies[replies.length - 1] : null;
     const alreadyAnswered =
       lastReply &&
-      (lastReply.author.emailAddress.toLowerCase() === claudeEmail.toLowerCase() ||
-        processedIds.has(lastReply.id));
+      (authorEmail(lastReply) === lowerClaude || processedIds.has(lastReply.id));
 
     if (!alreadyAnswered) {
       pending.push({
@@ -234,8 +238,7 @@ function processComment(comment, claudeEmail, processedIds) {
       const nextReply = replies[i + 1] || null;
       const replyAlreadyAnswered =
         nextReply &&
-        (nextReply.author.emailAddress.toLowerCase() === claudeEmail.toLowerCase() ||
-          processedIds.has(nextReply.id));
+        (authorEmail(nextReply) === lowerClaude || processedIds.has(nextReply.id));
 
       if (!replyAlreadyAnswered) {
         pending.push({
@@ -253,6 +256,7 @@ function processComment(comment, claudeEmail, processedIds) {
 
 function buildThreadHistory(comment, claudeEmail) {
   const messages = [];
+  const lowerClaude = claudeEmail.toLowerCase();
 
   messages.push({
     role: 'user',
@@ -261,10 +265,7 @@ function buildThreadHistory(comment, claudeEmail) {
 
   const replies = comment.replies || [];
   for (const reply of replies) {
-    const role =
-      reply.author.emailAddress.toLowerCase() === claudeEmail.toLowerCase()
-        ? 'assistant'
-        : 'user';
+    const role = authorEmail(reply) === lowerClaude ? 'assistant' : 'user';
     messages.push({
       role,
       content: stripAtClaude(reply.content)
