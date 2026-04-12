@@ -248,7 +248,7 @@ function processComment(comment, claudeEmail, processedIds) {
       pending.push({
         commentId: comment.id,
         replyId: null,
-        anchorText: truncate(anchorText, 60),
+        anchorText,
         prompt: stripAtClaude(comment.content)
       });
       return pending;
@@ -267,7 +267,7 @@ function processComment(comment, claudeEmail, processedIds) {
         pending.push({
           commentId: comment.id,
           replyId: reply.id,
-          anchorText: truncate(anchorText, 60),
+          anchorText,
           prompt: stripAtClaude(reply.content)
         });
       }
@@ -316,8 +316,11 @@ function normalizeMessages(messages) {
 
 function buildSystemPrompt(docContext, anchorText) {
   return `You are an assistant embedded in a Google Doc.
-Help with whatever the user asks — research, editing, rewriting, brainstorming, etc.
-Be concise. If you search the web, include sources at the end of your reply.
+
+If the request is about research, facts, or questions: respond concisely and directly.
+If the request is about writing, editing, or rewriting: match the document's tone and style as described in the document context below.
+
+If you search the web, include sources at the end of your reply.
 
 Document context:
 "${docContext}"
@@ -326,7 +329,7 @@ Highlighted text:
 "${anchorText}"`;
 }
 
-async function summarizeWithHaiku(text, apiKey) {
+async function summarizeWithHaiku(text, apiKey, targetWords) {
   try {
     const res = await fetch(ANTHROPIC_API_URL, {
       method: 'POST',
@@ -337,11 +340,11 @@ async function summarizeWithHaiku(text, apiKey) {
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5',
-        max_tokens: 256,
+        max_tokens: Math.ceil((targetWords / 0.75) * 1.1),
         messages: [
           {
             role: 'user',
-            content: `Summarize this document in 2-3 sentences for context:\n\n${text}`
+            content: `Summarize this document in approximately ${targetWords} words. Focus on:\n- Overall structure and organization\n- A brief outline of main sections\n- Key points and arguments\n- Important quotes or specific language worth preserving\n- The document's tone and writing style (e.g. formal/informal, technical/conversational, persuasive/neutral, first/third person)\n\nDocument:\n\n${text}`
           }
         ]
       })
@@ -356,10 +359,10 @@ async function summarizeWithHaiku(text, apiKey) {
     if (textBlocks.length > 0) {
       return textBlocks.map(b => b.text).join('\n\n');
     }
-    return text.slice(0, 500);
+    return text.slice(0, 5000);
   } catch (err) {
     console.error('summarizeWithHaiku error:', err);
-    return text.slice(0, 500);
+    return text.slice(0, 5000);
   }
 }
 
@@ -381,18 +384,17 @@ async function getDocContext(docId, accessToken, anthropicApiKey, env) {
   }
 
   const fullText = await exportRes.text();
-  const words = fullText.trim().split(/\s+/);
-  const wordCount = words.length;
+  const wordCount = fullText.trim().split(/\s+/).length;
 
   let context;
-  if (wordCount <= 500) {
+  if (wordCount <= 1000) {
     context = fullText;
   } else {
-    const excerpt = words.slice(0, 2000).join(' ');
-    context = await summarizeWithHaiku(excerpt, anthropicApiKey);
+    const targetWords = Math.max(Math.round(wordCount * 0.1), 1000);
+    context = await summarizeWithHaiku(fullText, anthropicApiKey, targetWords);
   }
 
-  await env.DOC_CONFIGS.put(cacheKey, context, { expirationTtl: 21600 });
+  await env.DOC_CONFIGS.put(cacheKey, context, { expirationTtl: 3600 });
   return context;
 }
 
@@ -431,6 +433,7 @@ async function markProcessed(docId, replyId, env) {
 async function processSingleInvocation(item, docId, anthropicApiKey, accessToken, env) {
   const { comment, commentId, anchorText } = item;
 
+  // Build thread history before posting placeholder so it doesn't appear as context
   let messages = buildThreadHistory(comment, SERVICE_ACCOUNT_EMAIL);
   messages = normalizeMessages(messages);
 
@@ -438,46 +441,65 @@ async function processSingleInvocation(item, docId, anthropicApiKey, accessToken
     return;
   }
 
+  // Post placeholder immediately so user knows Claude is working
+  const placeholderRes = await fetch(
+    `${DRIVE_API_BASE}/files/${docId}/comments/${commentId}/replies?fields=id`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: 'Claude is responding\u2026' })
+    }
+  );
+  if (!placeholderRes.ok) {
+    const body = await placeholderRes.text();
+    throw new Error(`Post placeholder failed ${placeholderRes.status}: ${body}`);
+  }
+  console.log(`[processSingleInvocation] placeholder posted for commentId=${commentId}`);
+
   const docContext = await getDocContext(docId, accessToken, anthropicApiKey, env);
   const systemPrompt = buildSystemPrompt(docContext, anchorText);
 
-  const payload = {
-    model: CLAUDE_MODEL,
-    max_tokens: MAX_TOKENS,
-    system: systemPrompt,
-    messages
-  };
+  let replyText;
+  let isError = false;
+  try {
+    const anthropicRes = await fetch(ANTHROPIC_API_URL, {
+      method: 'POST',
+      headers: {
+        'x-api-key': anthropicApiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-beta': 'web-search-2025-03-05',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: CLAUDE_MODEL,
+        max_tokens: MAX_TOKENS,
+        system: systemPrompt,
+        messages,
+        tools: [{ type: 'web_search_20250305', name: 'web_search' }]
+      })
+    });
 
-  const anthropicRes = await fetch(ANTHROPIC_API_URL, {
-    method: 'POST',
-    headers: {
-      'x-api-key': anthropicApiKey,
-      'anthropic-version': '2023-06-01',
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(payload)
-  });
+    if (!anthropicRes.ok) {
+      const body = await anthropicRes.text();
+      throw new Error(`Anthropic API failed ${anthropicRes.status}: ${body}`);
+    }
 
-  if (!anthropicRes.ok) {
-    const body = await anthropicRes.text();
-    throw new Error(`Anthropic API failed ${anthropicRes.status}: ${body}`);
+    const anthropicData = await anthropicRes.json();
+    const textBlocks = (anthropicData.content || []).filter(b => b.type === 'text' && b.text);
+    if (textBlocks.length === 0) throw new Error('No text content in response');
+    replyText = textBlocks.map(b => b.text).join('\n\n');
+  } catch (err) {
+    replyText = `Claude encountered an error: ${err.message}`;
+    isError = true;
+    console.error('[processSingleInvocation] Anthropic error:', err);
   }
 
-  const anthropicData = await anthropicRes.json();
-  const textBlocks = (anthropicData.content || []).filter(b => b.type === 'text' && b.text);
-  if (textBlocks.length === 0) {
-    return;
-  }
-  const replyText = textBlocks.map(b => b.text).join('\n\n');
-
+  // Post response (or error) as a second reply
   const replyRes = await fetch(
     `${DRIVE_API_BASE}/files/${docId}/comments/${commentId}/replies?fields=id`,
     {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      },
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ content: replyText })
     }
   );
@@ -489,7 +511,9 @@ async function processSingleInvocation(item, docId, anthropicApiKey, accessToken
 
   const replyData = await replyRes.json();
   await markProcessed(docId, replyData.id, env);
+  console.log(`[processSingleInvocation] reply posted for commentId=${commentId} isError=${isError}`);
 }
+
 
 async function processDoc(config, env) {
   console.log(`[processDoc] start docId=${config.docId}`);
@@ -506,13 +530,11 @@ async function processDoc(config, env) {
   }
 
   try {
-    // Wait briefly for Drive's comment index to catch up after the webhook fires
-    await new Promise(r => setTimeout(r, 2000));
-
     const accessToken = await getServiceAccountToken(env);
     console.log('[processDoc] got service account token');
 
-    const comments = await fetchAllComments(config.docId, accessToken);
+    await new Promise(r => setTimeout(r, 4000));
+    let comments = await fetchAllComments(config.docId, accessToken);
     console.log(`[processDoc] fetched ${comments.length} comments, activatedAt=${new Date(config.activatedAt).toISOString()}`);
 
     const processedIds = await getProcessedIds(config.docId, env);
@@ -548,7 +570,7 @@ async function processDoc(config, env) {
       console.log(`[processDoc] processing commentId=${item.commentId} prompt="${item.prompt.slice(0, 80)}"`);
       try {
         await processSingleInvocation(item, config.docId, config.anthropicApiKey, accessToken, env);
-        console.log(`[processDoc] reply posted for commentId=${item.commentId}`);
+        console.log(`[processDoc] finished commentId=${item.commentId}`);
       } catch (err) {
         await env.DOC_CONFIGS.delete(lockKey);
         const msg = err.message || '';

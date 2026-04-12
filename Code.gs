@@ -275,16 +275,15 @@ function getDocumentContext(docId) {
   }
 
   var bodyText = DocumentApp.getActiveDocument().getBody().getText();
-  var words = bodyText.split(/\s+/).filter(function(w) { return w.length > 0; });
-  var wordCount = words.length;
+  var wordCount = bodyText.trim().split(/\s+/).length;
 
   var context;
-  if (wordCount <= 500) {
+  if (wordCount <= 1000) {
     context = bodyText;
   } else {
-    var excerpt = words.slice(0, 2000).join(' ');
-    context = summarizeWithHaiku(excerpt);
-    cache.put(cacheKey, context, 21600);
+    var targetWords = Math.max(Math.round(wordCount * 0.1), 1000);
+    context = summarizeWithHaiku(bodyText, targetWords);
+    cache.put(cacheKey, context, 3600);
   }
 
   return context;
@@ -292,15 +291,15 @@ function getDocumentContext(docId) {
 
 // ─── Summarization ────────────────────────────────────────────────────────────
 
-function summarizeWithHaiku(text) {
+function summarizeWithHaiku(text, targetWords) {
   var settings = getSettings();
   var payload = {
     model: 'claude-haiku-4-5',
-    max_tokens: 256,
+    max_tokens: Math.ceil((targetWords / 0.75) * 1.1),
     messages: [
       {
         role: 'user',
-        content: 'Summarize this document in 2-3 sentences for context:\n\n' + text
+        content: 'Summarize this document in approximately ' + targetWords + ' words. Focus on:\n- Overall structure and organization\n- A brief outline of main sections\n- Key points and arguments\n- Important quotes or specific language worth preserving\n- The document\'s tone and writing style (e.g. formal/informal, technical/conversational, persuasive/neutral, first/third person)\n\nDocument:\n\n' + text
       }
     ]
   };
@@ -413,7 +412,7 @@ function processComment(comment, claudeEmail, processedIds, pending) {
       pending.push({
         commentId: comment.id,
         replyId: null,
-        anchorText: truncate(anchorText, 60),
+        anchorText: anchorText,
         prompt: comment.content.replace(/@claude/gi, '').trim()
       });
       return; // Top-level @claude not yet answered — don't also scan replies
@@ -439,7 +438,7 @@ function processComment(comment, claudeEmail, processedIds, pending) {
         pending.push({
           commentId: comment.id,
           replyId: reply.id,
-          anchorText: truncate(anchorText, 60),
+          anchorText: anchorText,
           prompt: reply.content.replace(/@claude/gi, '').trim()
         });
       }
@@ -536,9 +535,10 @@ function callAnthropicApi(payload, apiKey) {
 // ─── System Prompt ────────────────────────────────────────────────────────────
 
 function buildSystemPrompt(docContext, anchorText) {
-  return 'You are an assistant embedded in a Google Doc.\n' +
-    'Help with whatever the user asks \u2014 research, editing, rewriting, brainstorming, etc.\n' +
-    'Be concise. If you search the web, include sources at the end of your reply.\n\n' +
+  return 'You are an assistant embedded in a Google Doc.\n\n' +
+    'If the request is about research, facts, or questions: respond concisely and directly.\n' +
+    'If the request is about writing, editing, or rewriting: match the document\'s tone and style as described in the document context below.\n\n' +
+    'If you search the web, include sources at the end of your reply.\n\n' +
     'Document context:\n"' + docContext + '"\n\n' +
     'Highlighted text:\n"' + anchorText + '"';
 }
