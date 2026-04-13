@@ -3,6 +3,7 @@ const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const DRIVE_API_BASE = 'https://www.googleapis.com/drive/v3';
 const CLAUDE_MODEL = 'claude-sonnet-4-6';
 const MAX_TOKENS = 4096;
+const ENABLE_WEB_SEARCH = false; // requires Cloudflare paid plan (30s free limit too short for web search)
 
 export default {
   async fetch(request, env, ctx) {
@@ -232,49 +233,32 @@ function authorEmail(reply) {
   return (reply?.author?.emailAddress || '').toLowerCase();
 }
 
-function processComment(comment, claudeEmail, processedIds) {
-  const pending = [];
+function processComment(comment, processedIds) {
   const replies = comment.replies || [];
   const anchorText = comment.quotedFileContent?.value || '';
-  const lowerClaude = claudeEmail.toLowerCase();
 
-  if (containsAtClaude(comment.content)) {
-    const lastReply = replies.length > 0 ? replies[replies.length - 1] : null;
-    const alreadyAnswered =
-      lastReply &&
-      (authorEmail(lastReply) === lowerClaude || processedIds.has(lastReply.id));
+  // Flatten the thread into a single sequence: top-level comment first, then replies
+  const items = [
+    { content: comment.content, id: null },
+    ...replies.map(r => ({ content: r.content, id: r.id }))
+  ];
 
-    if (!alreadyAnswered) {
-      pending.push({
-        commentId: comment.id,
-        replyId: null,
-        anchorText,
-        prompt: stripAtClaude(comment.content)
-      });
-      return pending;
-    }
+  for (let i = 0; i < items.length; i++) {
+    if (!containsAtClaude(items[i].content)) continue;
+
+    // Answered if any subsequent item is in processedIds
+    const alreadyAnswered = items.slice(i + 1).some(r => r.id && processedIds.has(r.id));
+    if (alreadyAnswered) continue;
+
+    return [{
+      commentId: comment.id,
+      replyId: items[i].id,
+      anchorText,
+      prompt: stripAtClaude(items[i].content)
+    }];
   }
 
-  for (let i = 0; i < replies.length; i++) {
-    const reply = replies[i];
-    if (containsAtClaude(reply.content)) {
-      const nextReply = replies[i + 1] || null;
-      const replyAlreadyAnswered =
-        nextReply &&
-        (authorEmail(nextReply) === lowerClaude || processedIds.has(nextReply.id));
-
-      if (!replyAlreadyAnswered) {
-        pending.push({
-          commentId: comment.id,
-          replyId: reply.id,
-          anchorText,
-          prompt: stripAtClaude(reply.content)
-        });
-      }
-    }
-  }
-
-  return pending;
+  return [];
 }
 
 function buildThreadHistory(comment, claudeEmail) {
@@ -319,9 +303,7 @@ function buildSystemPrompt(docContext, anchorText) {
 
 If the request is about research, facts, or questions: respond concisely and directly.
 If the request is about writing, editing, or rewriting: match the document's tone and style as described in the document context below.
-
-If you search the web, include sources at the end of your reply.
-
+${ENABLE_WEB_SEARCH ? '\nIf you search the web, include sources at the end of your reply.' : ''}
 Document context:
 "${docContext}"
 
@@ -462,21 +444,25 @@ async function processSingleInvocation(item, docId, anthropicApiKey, accessToken
   let replyText;
   let isError = false;
   try {
+    const anthropicHeaders = {
+      'x-api-key': anthropicApiKey,
+      'anthropic-version': '2023-06-01',
+      'Content-Type': 'application/json'
+    };
+    if (ENABLE_WEB_SEARCH) anthropicHeaders['anthropic-beta'] = 'web-search-2025-03-05';
+
+    const anthropicBody = {
+      model: CLAUDE_MODEL,
+      max_tokens: MAX_TOKENS,
+      system: systemPrompt,
+      messages
+    };
+    if (ENABLE_WEB_SEARCH) anthropicBody.tools = [{ type: 'web_search_20250305', name: 'web_search' }];
+
     const anthropicRes = await fetch(ANTHROPIC_API_URL, {
       method: 'POST',
-      headers: {
-        'x-api-key': anthropicApiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-beta': 'web-search-2025-03-05',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: CLAUDE_MODEL,
-        max_tokens: MAX_TOKENS,
-        system: systemPrompt,
-        messages,
-        tools: [{ type: 'web_search_20250305', name: 'web_search' }]
-      })
+      headers: anthropicHeaders,
+      body: JSON.stringify(anthropicBody)
     });
 
     if (!anthropicRes.ok) {
@@ -533,7 +519,7 @@ async function processDoc(config, env) {
     const accessToken = await getServiceAccountToken(env);
     console.log('[processDoc] got service account token');
 
-    await new Promise(r => setTimeout(r, 4000));
+    await new Promise(r => setTimeout(r, 2000)); // 2s: wait for Drive to propagate new comments before fetching
     let comments = await fetchAllComments(config.docId, accessToken);
     console.log(`[processDoc] fetched ${comments.length} comments, activatedAt=${new Date(config.activatedAt).toISOString()}`);
 
@@ -550,7 +536,7 @@ async function processDoc(config, env) {
         console.log(`[processDoc] @claude comment id=${comment.id} isNew=${isNew}`);
       }
       if (!isNew) continue;
-      const pending = processComment(comment, SERVICE_ACCOUNT_EMAIL, processedIds);
+      const pending = processComment(comment, processedIds);
       for (const p of pending) {
         allPending.push({ ...p, comment });
       }
@@ -565,7 +551,7 @@ async function processDoc(config, env) {
         console.log(`[processDoc] commentId=${item.commentId} already in-flight, skipping`);
         continue;
       }
-      await env.DOC_CONFIGS.put(lockKey, '1', { expirationTtl: 300 });
+      await env.DOC_CONFIGS.put(lockKey, '1', { expirationTtl: 60 }); // KV minimum is 60s; free plan wall-clock limit is 30s so lock outlives the worker by ~30s before retry
 
       console.log(`[processDoc] processing commentId=${item.commentId} prompt="${item.prompt.slice(0, 80)}"`);
       try {

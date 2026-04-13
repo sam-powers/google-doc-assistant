@@ -58,7 +58,7 @@ Key structure:
 - `{channelToken}` → `{ docId, anthropicApiKey, channelId, activatedAt }`
 - `canonical_{docId}` → `channelToken` (which user's channel is active for this doc)
 - `processed_{docId}` → JSON array of reply IDs (dedup, capped at 500)
-- `processing_{commentId}` → in-flight lock, 5min TTL
+- `processing_{commentId}` → in-flight lock, 60s TTL (KV minimum; free plan wall-clock limit is 30s)
 - `doc_context_{docId}` → cached doc text/summary, 1hr TTL
 - `sa_token_cache` → service account OAuth token, 55min TTL
 
@@ -80,6 +80,12 @@ Granted commenter access on each doc at activation time. Permission persists aft
 
 **No email filter** — Drive API does not return `author.emailAddress` for comment authors when fetched by a service account. Dedup relies on `author.me` (boolean) and processed reply IDs instead.
 
+**`processComment` takes no `claudeEmail` arg** — the flat-loop refactor removed all email-based logic from `processComment`. It takes `(comment, processedIds)` only. The call site passes `SERVICE_ACCOUNT_EMAIL` nowhere near `processComment`. Do not re-add a `claudeEmail` parameter; it is unused and passing it in the wrong position caused a prior bug where `processedIds` was `undefined`.
+
+**KV TTL minimum is 60 seconds** — Cloudflare KV rejects any `expirationTtl` below 60. The in-flight lock is set to 60s. Do not set it lower.
+
+**Web search is feature-flagged off** — `ENABLE_WEB_SEARCH = false` at the top of `worker/index.js`. Web search adds 15–30s to Anthropic calls, which exceeds the Cloudflare free plan 30s wall-clock limit. Re-enable by setting `ENABLE_WEB_SEARCH = true` after upgrading to Cloudflare Workers paid plan ($5/month) or migrating to Cloud Run.
+
 **BYOK** — API key is stored in the activating user's Google UserProperties. Deleted on deactivation. Never exposed in the UI after entry.
 
 ## Watch Expiry
@@ -89,6 +95,7 @@ Drive watches expire after 6 days. A daily Apps Script trigger (`renewWatch`) ch
 ## Known Issues
 
 - **No UI feedback while Claude is processing** — user adds `@claude` comment and waits silently for ~10–30s
+- **Cloudflare free plan 30s wall-clock limit** — `ctx.waitUntil` is capped at 30 seconds total from request arrival. Pipeline budget: 2s sleep + ~1s Drive fetch + ~0.5s KV + ~1s placeholder POST + Anthropic = ~25s for Anthropic. Without web search, Anthropic typically responds in 10–15s and fits comfortably. With web search enabled, calls frequently exceed 30s and the worker gets killed silently; the 60s lock then blocks retries for a minute. Fix: upgrade to Cloudflare Workers paid plan ($5/month) which raises the limit to 15 minutes, then re-enable `ENABLE_WEB_SEARCH`.
 - **No structural location in prompt** — Claude knows the highlighted anchor text but not where in the doc it lives (e.g. which section/heading). The Google Docs API (`docs.googleapis.com/v1/documents/{id}`) could provide this by walking the element tree and tracking the heading stack at the point of the quoted text (~100–300ms extra per call, not cacheable). Deferred — only valuable for docs with clear heading structure.
 - **Collaborator sidebar shows setup state** even when Claude is active (activated by someone else). No `/status` endpoint on the worker to check canonical channel from the sidebar.
 - **Multiplayer conflict** — if User B activates on a doc User A already activated, B's channel becomes canonical with no warning to A
