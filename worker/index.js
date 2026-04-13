@@ -501,6 +501,14 @@ async function processSingleInvocation(item, docId, anthropicApiKey, accessToken
 }
 
 
+// Named exports for unit testing
+export {
+  processComment, buildThreadHistory, normalizeMessages,
+  buildSystemPrompt, summarizeWithHaiku, getDocContext,
+  processSingleInvocation, handleWebhook, handleRegister,
+  truncate, stripAtClaude, containsAtClaude,
+};
+
 async function processDoc(config, env) {
   console.log(`[processDoc] start docId=${config.docId}`);
 
