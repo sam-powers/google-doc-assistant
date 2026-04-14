@@ -290,9 +290,9 @@ Cold starts on Cloud Run (Node.js + Firestore SDK) are typically 500ms–1s. Giv
 
 ---
 
-## Open questions
+## Resolved decisions
 
-1. **GCP project** — Does one exist for this service (`claude-doc-assistant`) or does a new project need to be created?
-2. **Drive webhook URL registration** — Cloud Run URL contains a hash (`-XXXX-uc.a.run.app`). If redeploying to a new service name, the URL changes and all active users need to reactivate. Redeploying to the same service name preserves the URL.
-3. **Firestore location lock-in** — Once created, the database location cannot be changed. `us-central1` aligns with Cloud Run and minimises latency.
-4. **`--min-instances`** — Accept occasional cold starts (free) or pay ~$5/month for always-warm?
+1. **GCP project** — No existing project. A new project (`claude-doc-assistant`) needs to be created. Setup instructions are included in the migration checklist.
+2. **Drive webhook URL stability** — Redeploying to the same service name (`claude-doc-assistant`) in the same region preserves the URL. Active users do not need to reactivate on redeploys.
+3. **Firestore region** — `us-central1` confirmed. Cannot be changed after creation.
+4. **`--min-instances`** — Use `0` (free, accept cold starts). Cold starts are invisible to users because the 200 response is returned to Drive before any heavy processing begins.
