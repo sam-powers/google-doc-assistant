@@ -1,0 +1,203 @@
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+.brief{padding:1.5rem 0;max-width:720px}
+.meta{display:flex;gap:1.5rem;margin-bottom:2rem;flex-wrap:wrap}
+.meta-item{font-size:12px;color:var(--color-text-secondary);font-family:var(--font-sans)}
+.meta-item span{color:var(--color-text-primary);font-weight:500}
+h1{font-size:20px;font-weight:500;color:var(--color-text-primary);margin-bottom:.5rem;font-family:var(--font-sans)}
+.tagline{font-size:14px;color:var(--color-text-secondary);margin-bottom:2rem;font-family:var(--font-sans)}
+.section{margin-bottom:2rem}
+.section-label{font-size:11px;font-weight:500;letter-spacing:.08em;color:var(--color-text-tertiary);text-transform:uppercase;margin-bottom:.75rem;font-family:var(--font-sans)}
+.prose{font-size:14px;line-height:1.75;color:var(--color-text-primary);font-family:var(--font-sans)}
+.prose p{margin-bottom:.75rem}
+.prose p:last-child{margin-bottom:0}
+pre{background:var(--color-background-secondary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:1rem;font-size:12px;line-height:1.6;color:var(--color-text-primary);overflow-x:auto;margin-bottom:.75rem;font-family:var(--font-mono)}
+.divider{border:none;border-top:0.5px solid var(--color-border-tertiary);margin:2rem 0}
+.pill{display:inline-block;font-size:11px;padding:2px 8px;border-radius:4px;margin-right:6px;margin-bottom:4px;font-family:var(--font-sans)}
+.pill-teal{background:#E1F5EE;color:#0F6E56}
+.pill-gray{background:#F1EFE8;color:#5F5E5A}
+.pill-amber{background:#FAEEDA;color:#854F0B}
+.pill-purple{background:#EEEDFE;color:#3C3489}
+.version-badge{display:inline-block;font-size:11px;padding:2px 8px;border-radius:4px;background:#EEEDFE;color:#3C3489;font-family:var(--font-sans);margin-left:10px;vertical-align:middle}
+.changed{background:var(--color-background-info);border-left:2px solid var(--color-border-info);padding:.75rem 1rem;border-radius:0 var(--border-radius-md) var(--border-radius-md) 0;margin-bottom:.75rem}
+@media (prefers-color-scheme:dark){
+  .pill-teal{background:#085041;color:#9FE1CB}
+  .pill-gray{background:#444441;color:#D3D1C7}
+  .pill-amber{background:#633806;color:#FAC775}
+  .pill-purple{background:#26215C;color:#CECBF6}
+  .version-badge{background:#26215C;color:#CECBF6}
+}
+</style>
+
+<div class="brief">
+  <h1>@claude in Google Docs comments <span class="version-badge">v1</span></h1>
+  <p class="tagline">A Google Docs add-on with a sidebar that processes @claude-tagged comments on demand — no polling, no server.</p>
+
+  <div class="meta">
+    <div class="meta-item">Stack <span>Google Apps Script</span></div>
+    <div class="meta-item">APIs <span>Google Docs, Anthropic</span></div>
+    <div class="meta-item">Auth <span>OAuth 2.0 (Google) + Anthropic API key</span></div>
+    <div class="meta-item">Trigger <span>Manual — sidebar button</span></div>
+  </div>
+
+  <hr class="divider">
+
+  <div class="section">
+    <div class="section-label">Goal</div>
+    <div class="prose">
+      <p>Build a Google Docs add-on that lets you tag comments with <code>@claude</code> to invoke Claude on highlighted text. Claude can help with anything — research, rewrites, edits, translation, brainstorming — driven entirely by the free-form prompt. A sidebar panel lists all pending <code>@claude</code> invocations. You hit "Run" per comment or "Run all" to process them. Claude replies inline in the comment thread.</p>
+      <p>Threads are conversational — you can follow up by replying with another <code>@claude</code> tag and Claude will see the full thread history before responding.</p>
+      <p>No background polling. No server. You control when Claude runs.</p>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <div class="section">
+    <div class="section-label">User flow</div>
+    <div class="prose">
+      <p>1. Highlight text in the doc, leave a comment with a prompt tagged <code>@claude</code>.</p>
+      <p>2. Open the add-on sidebar (Extensions > Claude > Open sidebar).</p>
+      <p>3. Sidebar shows all pending <code>@claude</code> invocations — both new comment threads and follow-up replies in existing threads.</p>
+      <p>4. Click "Run" on one or "Run all" to process all at once.</p>
+      <p>5. Claude replies to each comment thread. You can continue the conversation by replying with <code>@claude</code> again.</p>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <div class="section">
+    <div class="section-label">Trigger rules</div>
+    <div class="changed">
+      <div class="prose">
+        <p>A comment or reply queues Claude if and only if it contains <code>@claude</code> and has not yet received a Claude reply after it. Specifically:</p>
+        <p>— A new top-level comment containing <code>@claude</code> → queued.<br>— A reply in an existing thread containing <code>@claude</code> → queued.<br>— A reply in an existing thread that does NOT contain <code>@claude</code> → ignored.</p>
+        <p>Strip <code>@claude</code> from the prompt text before passing to the model.</p>
+      </div>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <div class="section">
+    <div class="section-label">Thread context</div>
+    <div class="changed">
+      <div class="prose">
+        <p>When processing any invocation, fetch the full comment thread in order and reconstruct it as a message history. Map it as follows:</p>
+        <p>— User comments and replies (with or without <code>@claude</code>) → <code>role: "user"</code><br>— Claude's previous replies → <code>role: "assistant"</code></p>
+        <p>Pass the full thread as the <code>messages</code> array. This gives Claude the full conversation context before generating its next reply.</p>
+        <p>Identify Claude's previous replies by the service account email used to post them (store this as a script property).</p>
+      </div>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <div class="section">
+    <div class="section-label">Document context</div>
+    <div class="prose">
+      <p>Before firing any jobs, fetch the full document body text. Pass the first ~2000 words to a fast summarization call (use <code>claude-haiku-4-5</code>) and include that summary in every API call as part of the system prompt.</p>
+      <p>If the doc is under ~500 words, skip summarization and pass the full text directly. Cache the summary for the duration of the sidebar session — don't re-summarize on every "Run" click.</p>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <div class="section">
+    <div class="section-label">Anthropic API call</div>
+    <div class="prose"><p>Use <code>claude-sonnet-4-5</code> with web search available. Claude decides whether to use it based on the prompt — no need to enforce it. System prompt establishes context; messages are the reconstructed thread.</p></div>
+    <pre>{
+  model: "claude-sonnet-4-5",
+  max_tokens: 1024,
+  tools: [{ type: "web_search_20250305", name: "web_search" }],
+  system: `You are an assistant embedded in a Google Doc.
+The user has highlighted text and left a prompt in a comment.
+Help with whatever they ask — research, editing, rewriting,
+brainstorming, etc. Be concise. If you search the web,
+include sources at the end of your reply.
+
+Document summary: "${docSummary}"
+Highlighted text: "${anchorText}"`,
+  messages: threadHistory
+}</pre>
+  </div>
+
+  <hr class="divider">
+
+  <div class="section">
+    <div class="section-label">Sidebar UI</div>
+    <div class="prose">
+      <p>For each pending <code>@claude</code> invocation show: the anchor text (truncated to ~60 chars), the latest prompt, and a "Run" button. Plus a "Run all" button at the top. Show a loading state per item while in flight. On completion show "Done."</p>
+      <p>If nothing is pending, show: "No pending @claude comments."</p>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <div class="section">
+    <div class="section-label">Reply format</div>
+    <div class="prose"><p>Post reply via <code>documents.comments.replies.create</code>. No rigid template — Claude replies naturally based on the prompt. If web search was used, append a sources section.</p></div>
+  </div>
+
+  <hr class="divider">
+
+  <div class="section">
+    <div class="section-label">Deduplication</div>
+    <div class="prose">
+      <p>A comment or reply is considered processed once Claude has posted a reply immediately after it in the thread. Use the service account email to identify Claude's replies. Store processed comment+reply IDs in <code>PropertiesService</code> as a fallback.</p>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <div class="section">
+    <div class="section-label">Configuration</div>
+    <div class="prose">
+      <p>Store the Anthropic API key and the service account email in Apps Script script properties. Add a settings panel in the sidebar for first-run setup.</p>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <div class="section">
+    <div class="section-label">Out of scope for v1</div>
+    <div class="prose">
+      <p>Automatic trigger on comment add (planned for v2 via Cloudflare Worker + Drive push notifications), @claude in Sheets or Slides, per-document configuration.</p>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <div class="section">
+    <div class="section-label">v2 note</div>
+    <div class="prose">
+      <p>Replace the manual sidebar trigger with a Cloudflare Worker receiving Google Drive push notification webhooks. On comment or reply add, the worker checks for <code>@claude</code> and fires automatically. No polling required.</p>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <div class="section">
+    <div class="section-label">Deliverables</div>
+    <div class="prose">
+      <p>A working Apps Script project deployable as a Docs add-on. README covering OAuth consent screen setup, script properties configuration, and installation instructions.</p>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <div class="section">
+    <div class="section-label">Tags</div>
+    <div>
+      <span class="pill pill-teal">Google Apps Script</span>
+      <span class="pill pill-teal">Anthropic API</span>
+      <span class="pill pill-teal">Google Docs API</span>
+      <span class="pill pill-gray">web search tool</span>
+      <span class="pill pill-gray">multi-turn threads</span>
+      <span class="pill pill-gray">OAuth 2.0</span>
+      <span class="pill pill-amber">v1 — no server</span>
+      <span class="pill pill-purple">v2 — Cloudflare Worker</span>
+    </div>
+  </div>
+</div>
