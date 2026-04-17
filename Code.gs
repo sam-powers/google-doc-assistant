@@ -1,8 +1,15 @@
 // ─── v2 Constants ─────────────────────────────────────────────────────────────
 var SERVICE_ACCOUNT_EMAIL = 'claude-assistant@claude-doc-assistant.iam.gserviceaccount.com';
-var WORKER_WEBHOOK_URL = 'https://claude-doc-assistant-1076978511316.us-central1.run.app/webhook';
-var WORKER_REGISTER_URL = 'https://claude-doc-assistant-1076978511316.us-central1.run.app/register';
 var WATCH_DURATION_MS = 6 * 24 * 60 * 60 * 1000; // 6 days in ms
+
+function getServiceBaseUrl() {
+  var url = PropertiesService.getScriptProperties().getProperty('SERVICE_BASE_URL');
+  if (!url) throw new Error('SERVICE_BASE_URL script property is not set.');
+  return url.replace(/\/$/, ''); // strip trailing slash
+}
+
+function getWorkerWebhookUrl()  { return getServiceBaseUrl() + '/webhook'; }
+function getWorkerRegisterUrl() { return getServiceBaseUrl() + '/register'; }
 
 // ─── Menu ────────────────────────────────────────────────────────────────────
 
@@ -125,7 +132,7 @@ function setupDoc() {
   var watchResource = {
     id: channelId,
     type: 'web_hook',
-    address: WORKER_WEBHOOK_URL,
+    address: getWorkerWebhookUrl(),
     token: channelToken,
     expiration: String(expiration)
   };
@@ -134,7 +141,7 @@ function setupDoc() {
 
   // Step 3: Register with Cloudflare Worker
   var registerSecret = PropertiesService.getScriptProperties().getProperty('REGISTER_SECRET');
-  var response = UrlFetchApp.fetch(WORKER_REGISTER_URL, {
+  var response = UrlFetchApp.fetch(getWorkerRegisterUrl(), {
     method: 'post',
     headers: {
       'Authorization': 'Bearer ' + registerSecret,
@@ -242,7 +249,7 @@ function deactivateDoc() {
   if (watch && watch.channelToken) {
     try {
       var registerSecret = PropertiesService.getScriptProperties().getProperty('REGISTER_SECRET');
-      var workerUnregisterUrl = WORKER_REGISTER_URL.replace('/register', '/unregister');
+      var workerUnregisterUrl = getServiceBaseUrl() + '/unregister';
       UrlFetchApp.fetch(workerUnregisterUrl, {
         method: 'post',
         headers: {

@@ -60,6 +60,12 @@ Never committed. Stored in GCP Secret Manager (`claude-doc-assistant` project):
 
 Mounted as env vars at deploy time via `--set-secrets`.
 
+## Apps Script Script Properties
+
+Set via Apps Script editor → Project Settings → Script Properties:
+- `REGISTER_SECRET` — must match the value stored in GCP Secret Manager
+- `SERVICE_BASE_URL` — Cloud Run base URL (e.g. `https://claude-doc-assistant-1076978511316.us-central1.run.app`). No hardcoded URLs in code — changing deployment target only requires updating this property.
+
 ## Firestore
 
 **Project:** `claude-doc-assistant` (us-central1, Native mode)
