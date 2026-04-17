@@ -248,6 +248,7 @@
       <p class="setup-description">
         Automatically responds to <strong>@claude</strong> comments in this document.
         Replies appear under the Claude Assistant account.
+        Your API key is stored securely in your Google account and never shared.
       </p>
 
       <div>
@@ -357,35 +358,16 @@
       btn.innerHTML = '<span class="spinner"></span> Activating\u2026';
 
       google.script.run
-        .withSuccessHandler(function() {
-          // Save key then set up the doc
-          google.script.run
-            .withSuccessHandler(function() {
-              google.script.run
-                .withSuccessHandler(function(result) {
-                  btn.innerHTML = 'Activate';
-                  renderActiveState(result);
-                })
-                .withFailureHandler(function(err) {
-                  btn.disabled = false;
-                  btn.innerHTML = 'Activate';
-                  showError('activate-error', err.message || String(err));
-                })
-                .setupDoc();
-            })
-            .withFailureHandler(function(err) {
-              btn.disabled = false;
-              btn.innerHTML = 'Activate';
-              showError('activate-error', err.message || String(err));
-            })
-            .saveSettings(key);
+        .withSuccessHandler(function(result) {
+          btn.innerHTML = 'Activate';
+          renderActiveState(result);
         })
         .withFailureHandler(function(err) {
           btn.disabled = false;
           btn.innerHTML = 'Activate';
           showError('activate-error', err.message || String(err));
         })
-        .testApiKey(key);
+        .activate(key);
     });
 
     // ── Deactivate ───────────────────────────────────────────────────────────

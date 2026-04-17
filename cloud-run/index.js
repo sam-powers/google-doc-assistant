@@ -1,4 +1,5 @@
 import express from 'express';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { kvGet, kvPut, kvDelete } from './firestore.js';
 
 const SERVICE_ACCOUNT_EMAIL = 'claude-assistant@claude-doc-assistant.iam.gserviceaccount.com';
@@ -26,13 +27,42 @@ if (process.env.NODE_ENV !== 'test') {
 }
 
 // ---------------------------------------------------------------------------
+// HMAC request verification
+// ---------------------------------------------------------------------------
+
+// Verifies X-Timestamp and X-Signature headers on inbound requests from Apps Script.
+// Signature = base64(HMAC-SHA256(REGISTER_SECRET, timestamp + "." + rawBody)).
+// Rejects requests with timestamps more than 5 minutes old to prevent replay attacks.
+function verifyHmac(req) {
+  const secret = process.env.REGISTER_SECRET;
+  if (!secret) return false;
+
+  const timestamp = req.headers['x-timestamp'] || '';
+  const signature = req.headers['x-signature'] || '';
+  if (!timestamp || !signature) return false;
+
+  // Reject stale requests (replay protection)
+  const now = Math.floor(Date.now() / 1000);
+  const ts  = parseInt(timestamp, 10);
+  if (isNaN(ts) || Math.abs(now - ts) > 300) return false;
+
+  const rawBody  = JSON.stringify(req.body);
+  const message  = `${timestamp}.${rawBody}`;
+  const expected = createHmac('sha256', secret).update(message).digest('base64');
+
+  try {
+    return timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+  } catch {
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Endpoint handlers
 // ---------------------------------------------------------------------------
 
 async function handleRegister(req, res) {
-  const authHeader = req.headers['authorization'] || '';
-  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
-  if (!token || token !== process.env.REGISTER_SECRET) {
+  if (!verifyHmac(req)) {
     return res.status(401).send('Unauthorized');
   }
 
@@ -47,17 +77,24 @@ async function handleRegister(req, res) {
 }
 
 async function handleUnregister(req, res) {
-  const authHeader = req.headers['authorization'] || '';
-  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
-  if (!token || token !== process.env.REGISTER_SECRET) {
+  if (!verifyHmac(req)) {
     return res.status(401).send('Unauthorized');
   }
 
   const { channelToken, docId } = req.body || {};
-  if (channelToken) await kvDelete(channelToken);
-  if (docId) {
-    const canonical = await kvGet(`canonical_${docId}`);
-    if (canonical === channelToken) await kvDelete(`canonical_${docId}`);
+  if (!channelToken || !docId) {
+    return res.status(400).send('Missing required fields: channelToken, docId');
+  }
+
+  // Delete the channel config
+  await kvDelete(channelToken);
+
+  // Only delete the canonical pointer if it still points to this channel.
+  // This guards against a confused deputy: a caller cannot wipe another user's
+  // canonical channel by providing just a docId with a mismatched token.
+  const canonical = await kvGet(`canonical_${docId}`);
+  if (canonical === channelToken) {
+    await kvDelete(`canonical_${docId}`);
   }
 
   return res.status(200).send('OK');
@@ -78,6 +115,13 @@ async function handleWebhook(req, res) {
 
   if (!channelToken) {
     console.log('[webhook] no channel token, ignoring');
+    return res.status(200).send('OK');
+  }
+
+  // Reject malformed tokens before hitting Firestore — valid tokens are UUIDs
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID_RE.test(channelToken)) {
+    console.log(`[webhook] token failed UUID validation: ${channelToken}`);
     return res.status(200).send('OK');
   }
 
@@ -571,6 +615,6 @@ async function processDoc(config) {
 export {
   processComment, buildThreadHistory, normalizeMessages,
   buildSystemPrompt, summarizeWithHaiku, getDocContext,
-  processSingleInvocation, handleWebhook, handleRegister,
+  processSingleInvocation, handleWebhook, handleRegister, handleUnregister,
   stripAtClaude, containsAtClaude,
 };
