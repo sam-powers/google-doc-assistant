@@ -1,6 +1,6 @@
 # @claude in Google Docs
 
-A lightweight Google Apps Script add-on that brings Claude AI directly into Google Docs comment threads. Mention `@claude` in any comment or reply and the sidebar will surface it as a pending invocation. Claude reads the document context, understands the highlighted text, and posts its reply directly back into the comment thread — including web search results when relevant.
+A Google Apps Script add-on + Cloud Run service that responds automatically to `@claude` mentions in Google Docs comment threads. Claude reads the document context, understands the highlighted text, and posts its reply directly back into the comment thread — including web search results when relevant. Replies appear under a dedicated "Claude Assistant" service account identity.
 
 ---
 
@@ -84,12 +84,9 @@ Or for quick iteration, use **Test deployments** (Deploy → Test deployments in
 
 ## First-time Setup (in the sidebar)
 
-The first time you open the sidebar in a doc, you'll be prompted to enter:
+The first time you open the sidebar in a doc, you'll be prompted to enter your **Anthropic API Key** — get yours at [console.anthropic.com](https://console.anthropic.com).
 
-- **Anthropic API Key** — get yours at [console.anthropic.com](https://console.anthropic.com)
-- **Your Google Account Email** — the email you use for Google Docs (used to identify Claude's replies so it doesn't respond to itself)
-
-Click **Save**. Settings are stored per-user in Apps Script's UserProperties — each person who installs the add-on manages their own key.
+Click **Test** to verify the key, then **Activate**. The key is stored encrypted in Google UserProperties — each person who installs the add-on manages their own key.
 
 If you see an "unverified app" authorization screen, click **Advanced → Go to [project name] (unsafe)** and approve. This is normal for private add-ons that haven't been through Google's Marketplace review.
 
@@ -105,7 +102,7 @@ If you see an "unverified app" authorization screen, click **Advanced → Go to 
 
    > `@claude Can you rewrite this paragraph to be more concise?`
 
-4. Post the comment, then open the sidebar: **Extensions → Claude Assistant → Open Claude Assistant**.
+4. Post the comment. Claude will respond automatically — no sidebar interaction needed.
 
 ### Follow-up replies
 
@@ -115,11 +112,9 @@ Reply to an existing thread and include `@claude` again:
 
 Claude will see the full thread history before responding.
 
-### Running invocations
+### How it works
 
-- **Run** — processes one comment. Shows a spinner while in-flight, then "Done." or an error.
-- **Run all** — processes all pending `@claude` mentions. Disabled while any item is in-flight.
-- A warning banner appears if there are more than 8 pending items (see limits below).
+When you post a `@claude` comment, Google Drive fires a webhook to the Cloud Run service. The service fetches the comment, calls Anthropic, and posts Claude's reply back to the thread under the "Claude Assistant" identity. Typical response time is 5–30 seconds (longer when web search is used).
 
 ---
 
@@ -145,7 +140,8 @@ Instead of the sidebar UI, set properties directly in the Apps Script editor:
 1. **Project Settings** (gear icon) → **Script Properties**
 2. Add:
    - `anthropicApiKey` → your Anthropic API key
-   - `claudeEmail` → your Google account email
+   - `REGISTER_SECRET` → must match the value in GCP Secret Manager
+   - `SERVICE_BASE_URL` → your Cloud Run service URL
 
 ---
 
@@ -154,16 +150,17 @@ Instead of the sidebar UI, set properties directly in the Apps Script editor:
 | Scope | Reason |
 |---|---|
 | `documents.currentonly` | Read the active document's text to build context for Claude |
-| `drive` | Read and write comments/replies via Drive API v3 |
-| `script.external_request` | Make HTTPS requests to the Anthropic API |
+| `drive` | Register Drive Change watches via Drive API v3 |
+| `script.external_request` | Make HTTPS requests to the Cloud Run service |
 | `script.container.ui` | Display the sidebar inside Google Docs |
 
 ---
 
 ## Limits
 
-- **6-minute execution limit** — Apps Script cuts off server-side functions at 6 minutes. With typical Anthropic response times (5–15 seconds each), "Run all" can safely handle ~8–10 items before risking a timeout. The sidebar shows a warning if you're over the threshold.
-- **CacheService TTL** — Document summaries are cached for 6 hours. The cache can be evicted early under memory pressure; if so, the doc will be re-summarized on the next invocation.
+- **Watch expiry** — Drive watches expire after 6 days. A daily Apps Script trigger checks all activated docs and notifies you by email if a watch is expiring. You'll need to reactivate from the sidebar to renew.
+- **Cooldown dedup** — Drive fires webhooks on every file mutation (edits, autosaves), not just comment additions. The service coalesces bursts into a single Claude call with a 15-second cooldown window.
+- **Document context cache** — Document summaries (for docs over 1,000 words) are cached in Firestore for 1 hour.
 
 ---
 
@@ -173,20 +170,8 @@ All costs billed to your Anthropic account.
 
 | Model | Input | Output | When used |
 |---|---|---|---|
-| claude-sonnet-4-5 | ~$3/MTok | ~$15/MTok | Every invocation |
-| claude-haiku-4-5 | ~$0.25/MTok | ~$1.25/MTok | Once per session, docs >500 words |
+| claude-sonnet-4-6 | ~$3/MTok | ~$15/MTok | Every invocation |
+| claude-haiku-4-5 | ~$0.25/MTok | ~$1.25/MTok | Once per session, docs >1,000 words |
 | Web search | varies | — | When Claude decides to search |
 
 A typical comment + context + response is a few hundred to a couple thousand tokens — well under a cent for most uses.
-
----
-
-## v2 Roadmap
-
-### Automatic triggering
-v1 requires manually opening the sidebar and clicking Run. v2 will add a **Cloudflare Worker** that receives **Google Drive push notifications** (via the Drive API watch endpoint) and automatically invokes Claude whenever a new `@claude` comment is posted — no sidebar interaction required.
-
-### Claude's own identity
-In v1, Claude's replies are posted under your Google account because Apps Script authenticates as you. v2 will introduce a **Google Cloud service account** with a dedicated identity (e.g. "Claude Assistant") so replies appear as a distinct participant in the thread rather than coming from you.
-
-The service account pairs naturally with the Cloudflare Worker: the Worker holds the service account credentials and uses them to post replies via the Drive API — completely outside Apps Script's OAuth constraints. The service account email would also replace the current `claudeEmail` setting used for deduplication.

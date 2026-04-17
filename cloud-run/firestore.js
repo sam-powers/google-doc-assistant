@@ -16,6 +16,7 @@ function keyToRef(key) {
   if (key.startsWith('processed_')) return db.collection('processed').doc(key.slice('processed_'.length));
   if (key.startsWith('processing_')) return db.collection('locks').doc(key.slice('processing_'.length));
   if (key.startsWith('cooldown_'))   return db.collection('locks').doc('cooldown_' + key.slice('cooldown_'.length));
+  if (key.startsWith('ratelimit_'))  return db.collection('locks').doc('ratelimit_' + key.slice('ratelimit_'.length));
   if (key.startsWith('doc_context_')) return db.collection('context').doc(key.slice('doc_context_'.length));
   return db.collection('channels').doc(key);
 }

@@ -194,6 +194,17 @@
     .btn-danger:hover:not(:disabled) { background: #fce8e6; }
     .btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }
 
+    /* ── Info banner ── */
+    .info-msg {
+      padding: 10px 12px;
+      background: #fef7e0;
+      border: 1px solid #f9c945;
+      border-radius: 4px;
+      font-size: 12px;
+      color: #7a5900;
+      line-height: 1.4;
+    }
+
     /* ── Error / Info ── */
     .error-msg {
       display: none;
@@ -273,6 +284,10 @@
           <div class="status-label">Active in this document</div>
           <div class="status-expires" id="expires-text"></div>
         </div>
+      </div>
+
+      <div class="info-msg">
+        If another collaborator activates Claude Assistant on this document, their channel becomes active and yours stops processing. Reactivate to reclaim it.
       </div>
 
       <div class="error-msg" id="deactivate-error"></div>

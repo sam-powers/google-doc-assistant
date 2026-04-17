@@ -177,11 +177,12 @@ describe('handleRegister', () => {
     const res = makeRes();
     await handleRegister(req, res);
     expect(res._status).toBe(200);
-    // Writes channelToken key and canonical_docId key
-    expect(firestore.kvPut).toHaveBeenCalledTimes(2);
+    // Writes channelToken key, canonical_docId key, and rate limit counter key
+    expect(firestore.kvPut).toHaveBeenCalledTimes(3);
     const keys = vi.mocked(firestore.kvPut).mock.calls.map(c => c[0]);
     expect(keys).toContain('ct1');
     expect(keys).toContain('canonical_di1');
+    expect(keys).toContain('ratelimit_register_di1');
   });
 
   it('returns 400 when required fields are missing from the body', async () => {

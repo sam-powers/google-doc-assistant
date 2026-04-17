@@ -76,7 +76,8 @@ Collection structure (mirrors old Cloudflare KV key schema):
 - `processed/{docId}` → `{ value: JSON array of reply IDs, capped at 500 }`
 - `locks/{commentId}` → `{ value: '1', expiresAt: Timestamp }` — in-flight lock, 120s TTL
 - `context/{docId}` → `{ value: string, expiresAt: Timestamp }` — cached doc text/summary, 1hr TTL
-- `cache/sa_token` → `{ value: token, expiresAt: Timestamp }` — service account OAuth token, 55min TTL
+- `cache/sa_token` → `{ value: token, expiresAt: Timestamp }` — service account OAuth token, 45min TTL (2700s)
+- `locks/ratelimit_{key}` → `{ value: count, expiresAt: Timestamp }` — rate limit counter for /register and /unregister, sliding 1hr window
 
 TTL policies are set on `locks`, `context`, and `cache` collections (Firestore TTL field: `expiresAt`). TTL deletes are eventually consistent — code checks `expiresAt > now` on read.
 
@@ -117,9 +118,14 @@ Drive watches expire after 6 days. A daily Apps Script trigger (`renewWatch`) ch
 - **Collaborator sidebar shows setup state** even when Claude is active (activated by someone else). No `/status` endpoint on Cloud Run to check canonical channel from the sidebar.
 - **Multiplayer conflict** — if User B activates on a doc User A already activated, B's channel becomes canonical with no warning to A
 - **Watch renewal requires manual reactivation** — not seamless
-- **`pendingDeferred` is process-level** — if Cloud Run scales to multiple instances each has its own `pendingDeferred` Map. A cooldown set by one instance won't suppress another's deferred timer; both can run `processDoc` concurrently. The per-comment Firestore lock prevents duplicate replies, but Anthropic calls are wasted during scale-out. Acceptable at current scale.
-- **No rate limiting on `/register` and `/unregister`** — HMAC is the only gate. A caller with a valid (or replayed) HMAC can call these endpoints repeatedly. Mitigated by the 60s replay window and the non-guessable Cloud Run URL.
-- **Drive webhooks are not signed by Google** — the UUID format check prevents garbage tokens but cannot prove a webhook originated from Google. A network-adjacent attacker who discovers the Cloud Run URL can spoof a webhook. Impact: wasted Anthropic call + false placeholder reply. Google does not provide a signing mechanism for Drive webhooks; the Cloud Run URL's non-guessability is the mitigation.
+- **`pendingDeferred` is process-level** — if Cloud Run scales to multiple instances each has its own `pendingDeferred` Map. A cooldown set by one instance won't suppress another's deferred timer. Partially mitigated: deferred timers re-check the Firestore cooldown key before calling `processDoc` — if another instance already ran (cooldown key still live), the deferred call is suppressed. The per-comment Firestore lock is the final guard against duplicate replies.
+- **Rate limiting on `/register` and `/unregister` is sliding-window** — Firestore-backed counter (10 requests/hr per docId). Because `kvPut` overwrites the document, each write resets the TTL, making the window sliding rather than fixed. Acceptable for abuse prevention; not a strict token-bucket.
+- **Drive webhooks are not signed by Google** — the UUID format check prevents garbage tokens but cannot prove a webhook originated from Google. A network-adjacent attacker who discovers the Cloud Run URL can spoof a webhook. Impact: wasted Anthropic call + false placeholder reply. Google does not provide a signing mechanism for Drive webhooks; the Cloud Run URL's non-guessability is the mitigation. **Treat the Cloud Run URL as a secret — do not publish it publicly.**
+- **No health check endpoint** — Cloud Run has no `/healthz`. If the container is unhealthy, Drive silently stops retrying webhooks with no indication to the user or operator. Low-priority until scale justifies it.
+- **`rateLimitExceeded` has a read-then-write race** — two concurrent `/register` or `/unregister` calls can both read `count=0` and both write `count=1`. Harmless at current scale; a Firestore transaction would make it atomic.
+- **Anthropic 429 detection is string-based** — `err.message.includes('429')` is fragile. Could false-positive if a doc ID contains "429". No backoff or jitter: the next webhook 15s later will hit the same rate limit again.
+- **`markProcessed` defensive re-read is dead code** — the fallback that re-reads Firestore when `processedIds` is `undefined` (lines ~554–563) can never trigger since all callers pass the set. Safe to remove if the function is ever refactored.
+- **Concurrent Haiku summarizations possible** — `getDocContext` is called inside per-comment locks. If two comments are pending simultaneously, both can miss the cache and trigger a Haiku summarization concurrently. Result: two identical Firestore writes (last write wins). Cosmetically harmless; wastes one Haiku call.
 
 ## Post-Push Checklist
 

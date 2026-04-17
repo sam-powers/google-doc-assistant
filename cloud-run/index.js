@@ -108,14 +108,32 @@ function verifyHmac(req) {
 // Endpoint handlers
 // ---------------------------------------------------------------------------
 
+// Firestore-backed rate limiter — safe across multiple Cloud Run instances.
+// Returns true if the request should be rejected (limit exceeded).
+async function rateLimitExceeded(key, maxRequests, windowSeconds) {
+  const counterKey = `ratelimit_${key}`;
+  const raw = await kvGet(counterKey);
+  const count = raw ? parseInt(raw, 10) : 0;
+  if (count >= maxRequests) return true;
+  // Always pass TTL; kvPut overwrites the document, so we re-anchor the window
+  // on every increment. This makes the window sliding rather than fixed, which
+  // is acceptable for the abuse-prevention use case here (10 per hour).
+  await kvPut(counterKey, String(count + 1), windowSeconds);
+  return false;
+}
+
 async function handleRegister(req, res) {
   if (!verifyHmac(req)) {
     return res.status(401).send('Unauthorized');
   }
 
+  // 10 activations per doc per hour — prevents runaway re-registration loops
   const { channelToken, channelId, docId, anthropicApiKey, activatedAt } = req.body || {};
   if (!channelToken || !channelId || !docId || !anthropicApiKey) {
     return res.status(400).send('Missing required fields: channelToken, channelId, docId, anthropicApiKey');
+  }
+  if (await rateLimitExceeded(`register_${docId}`, 10, 3600)) {
+    return res.status(429).send('Too Many Requests');
   }
 
   const encryptedKey = await encryptApiKey(anthropicApiKey);
@@ -132,6 +150,11 @@ async function handleUnregister(req, res) {
   const { channelToken, docId } = req.body || {};
   if (!channelToken || !docId) {
     return res.status(400).send('Missing required fields: channelToken, docId');
+  }
+
+  // 10 deactivations per doc per hour
+  if (await rateLimitExceeded(`unregister_${docId}`, 10, 3600)) {
+    return res.status(429).send('Too Many Requests');
   }
 
   // Cancel any pending deferred processDoc for this doc before touching KV.
@@ -218,8 +241,17 @@ async function handleWebhook(req, res) {
     res.status(200).end();
 
     if (!pendingDeferred.has(config.docId)) {
-      const timer = setTimeout(() => {
+      const timer = setTimeout(async () => {
         pendingDeferred.delete(config.docId);
+        // Re-check cooldown — another instance may have already run processDoc
+        // during the cooldown window. If the key is still live, skip to avoid
+        // duplicate Anthropic calls. Per-comment Firestore locks still guard
+        // against double replies even if this check races.
+        const stillOnCooldown = await kvGet(cooldownKey);
+        if (stillOnCooldown) {
+          console.log(`[webhook] deferred suppressed for docId=${config.docId} — another instance already processed`);
+          return;
+        }
         processDoc(config).catch(err => console.error('[webhook] deferred processDoc error:', err));
       }, COOLDOWN_SECONDS * 1000);
       pendingDeferred.set(config.docId, timer);
