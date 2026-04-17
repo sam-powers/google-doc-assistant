@@ -1,5 +1,6 @@
 import express from 'express';
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { KeyManagementServiceClient } from '@google-cloud/kms';
 import { kvGet, kvPut, kvDelete } from './firestore.js';
 
 const SERVICE_ACCOUNT_EMAIL = 'claude-assistant@claude-doc-assistant.iam.gserviceaccount.com';
@@ -8,6 +9,40 @@ const DRIVE_API_BASE = 'https://www.googleapis.com/drive/v3';
 const CLAUDE_MODEL = 'claude-sonnet-4-6';
 const MAX_TOKENS = 4096;
 const ENABLE_WEB_SEARCH = true;
+
+// ---------------------------------------------------------------------------
+// KMS helpers — encrypt/decrypt Anthropic API keys at rest
+// ---------------------------------------------------------------------------
+
+let _kmsClient = null;
+function getKmsClient() {
+  if (!_kmsClient) _kmsClient = new KeyManagementServiceClient();
+  return _kmsClient;
+}
+
+async function encryptApiKey(plaintext) {
+  const keyName = process.env.KMS_KEY_NAME;
+  if (!keyName) return plaintext; // no KMS configured — pass through (dev/test)
+
+  const client = getKmsClient();
+  const [result] = await client.encrypt({
+    name: keyName,
+    plaintext: Buffer.from(plaintext),
+  });
+  return Buffer.from(result.ciphertext).toString('base64');
+}
+
+async function decryptApiKey(ciphertext) {
+  const keyName = process.env.KMS_KEY_NAME;
+  if (!keyName) return ciphertext; // no KMS configured — pass through (dev/test)
+
+  const client = getKmsClient();
+  const [result] = await client.decrypt({
+    name: keyName,
+    ciphertext: Buffer.from(ciphertext, 'base64'),
+  });
+  return result.plaintext.toString('utf8');
+}
 
 const app = express();
 app.use(express.json());
@@ -71,7 +106,8 @@ async function handleRegister(req, res) {
     return res.status(400).send('Missing required fields: channelToken, channelId, docId, anthropicApiKey');
   }
 
-  await kvPut(channelToken, JSON.stringify({ docId, anthropicApiKey, channelId, activatedAt }));
+  const encryptedKey = await encryptApiKey(anthropicApiKey);
+  await kvPut(channelToken, JSON.stringify({ docId, anthropicApiKey: encryptedKey, channelId, activatedAt }));
   await kvPut(`canonical_${docId}`, channelToken);
   return res.status(200).send('OK');
 }
@@ -548,6 +584,9 @@ async function processDoc(config) {
     console.log('[processDoc] no activatedAt — orphaned channel, skipping');
     return;
   }
+
+  // Decrypt API key — no-op when KMS_KEY_NAME is unset (dev/test)
+  config = { ...config, anthropicApiKey: await decryptApiKey(config.anthropicApiKey) };
 
   const canonical = await kvGet(`canonical_${config.docId}`);
   if (canonical && canonical !== config.channelToken) {

@@ -2,7 +2,8 @@
   "name": "claude-doc-assistant",
   "type": "module",
   "dependencies": {
-    "express": "^4.19.0",
-    "@google-cloud/firestore": "^7.0.0"
+    "@google-cloud/firestore": "^7.0.0",
+    "@google-cloud/kms": "^4.5.0",
+    "express": "^4.19.0"
   }
 }

@@ -20,6 +20,9 @@ export default defineConfig({
       // is never loaded in the test environment.
       '../cloud-run/firestore.js': new URL('./tests/__mocks__/firestore.js', import.meta.url).pathname,
       './firestore.js': new URL('./tests/__mocks__/firestore.js', import.meta.url).pathname,
+      // Redirect @google-cloud/kms to a stub — KMS_KEY_NAME is unset in tests,
+      // so encrypt/decrypt pass-through anyway, but the import must resolve.
+      '@google-cloud/kms': new URL('./tests/__mocks__/kms.js', import.meta.url).pathname,
     },
   },
 });
