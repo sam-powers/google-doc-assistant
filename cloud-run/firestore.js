@@ -34,8 +34,11 @@ export async function kvGet(key) {
 
   const data = snap.data();
 
-  // Check in-process expiry for TTL collections (Firestore TTL may lag up to 24h)
-  if (TTL_COLLECTIONS.has(ref.parent.id) && data.expiresAt) {
+  // Check in-process expiry for TTL collections (Firestore TTL may lag up to 24h).
+  // Treat a missing expiresAt as expired rather than silently skipping the check —
+  // documents in TTL collections must always carry an expiry field.
+  if (TTL_COLLECTIONS.has(ref.parent.id)) {
+    if (data.expiresAt == null) return null;
     const expiresAt = data.expiresAt.toDate ? data.expiresAt.toDate() : new Date(data.expiresAt);
     if (expiresAt <= new Date()) return null;
   }

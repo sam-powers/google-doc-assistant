@@ -37,11 +37,15 @@ async function decryptApiKey(ciphertext) {
   if (!keyName) return ciphertext; // no KMS configured — pass through (dev/test)
 
   const client = getKmsClient();
-  const [result] = await client.decrypt({
-    name: keyName,
-    ciphertext: Buffer.from(ciphertext, 'base64'),
-  });
-  return result.plaintext.toString('utf8');
+  try {
+    const [result] = await client.decrypt({
+      name: keyName,
+      ciphertext: Buffer.from(ciphertext, 'base64'),
+    });
+    return result.plaintext.toString('utf8');
+  } catch (err) {
+    throw new Error(`KMS decryption failed — key may be unavailable or rotated: ${err.message}`);
+  }
 }
 
 const app = express();
@@ -122,13 +126,23 @@ async function handleUnregister(req, res) {
     return res.status(400).send('Missing required fields: channelToken, docId');
   }
 
+  // Cancel any pending deferred processDoc for this doc before touching KV.
+  const deferredTimer = pendingDeferred.get(docId);
+  if (deferredTimer) {
+    clearTimeout(deferredTimer);
+    pendingDeferred.delete(docId);
+  }
+
+  // Read canonical first so we can make the delete decision atomically-ordered
+  // (channel config gone → canonical check → canonical delete).
+  const canonical = await kvGet(`canonical_${docId}`);
+
   // Delete the channel config
   await kvDelete(channelToken);
 
   // Only delete the canonical pointer if it still points to this channel.
   // This guards against a confused deputy: a caller cannot wipe another user's
   // canonical channel by providing just a docId with a mismatched token.
-  const canonical = await kvGet(`canonical_${docId}`);
   if (canonical === channelToken) {
     await kvDelete(`canonical_${docId}`);
   }
@@ -288,8 +302,8 @@ async function getServiceAccountToken() {
     throw new Error(`Failed to obtain service account token: ${JSON.stringify(tokenData)}`);
   }
 
-  console.log('[getServiceAccountToken] token obtained, caching for 55min');
-  await kvPut('sa_token_cache', tokenData.access_token, 3300);
+  console.log('[getServiceAccountToken] token obtained, caching for 45min');
+  await kvPut('sa_token_cache', tokenData.access_token, 2700);
   return tokenData.access_token;
 }
 
@@ -488,7 +502,7 @@ async function markProcessed(docId, replyId) {
     arr = [];
   }
 
-  if (!arr.includes(replyId)) arr.push(replyId);
+  if (!new Set(arr).has(replyId)) arr.push(replyId);
   if (arr.length > 500) arr = arr.slice(arr.length - 500);
 
   await kvPut(key, JSON.stringify(arr));
@@ -504,7 +518,10 @@ async function processSingleInvocation(item, docId, anthropicApiKey, accessToken
   let messages = buildThreadHistory(comment);
   messages     = normalizeMessages(messages);
 
-  if (messages.length === 0 || messages[messages.length - 1].role !== 'user') return;
+  // Caller always releases the lock via a finally block — safe to return early here.
+  if (messages.length === 0 || messages[messages.length - 1].role !== 'user') {
+    throw new Error(`processSingleInvocation: thread ends with non-user role for commentId=${commentId}, skipping`);
+  }
 
   // Post placeholder immediately so the user knows Claude is working
   const placeholderRes = await fetch(
@@ -519,6 +536,8 @@ async function processSingleInvocation(item, docId, anthropicApiKey, accessToken
     const body = await placeholderRes.text();
     throw new Error(`Post placeholder failed ${placeholderRes.status}: ${body}`);
   }
+  const placeholderData = await placeholderRes.json();
+  const placeholderId   = placeholderData.id;
   console.log(`[processSingleInvocation] placeholder posted for commentId=${commentId}`);
 
   const docContext   = await getDocContext(docId, accessToken, anthropicApiKey);
@@ -556,6 +575,19 @@ async function processSingleInvocation(item, docId, anthropicApiKey, accessToken
     replyText = `Claude encountered an error: ${err.message}`;
     isError   = true;
     console.error('[processSingleInvocation] Anthropic error:', err);
+  }
+
+  // Delete placeholder before posting the real reply so users never see both.
+  // Best-effort — if this fails, continue and post the real reply anyway.
+  if (placeholderId) {
+    try {
+      await fetch(
+        `${DRIVE_API_BASE}/files/${docId}/comments/${commentId}/replies/${placeholderId}`,
+        { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+    } catch (err) {
+      console.warn(`[processSingleInvocation] could not delete placeholder ${placeholderId}:`, err.message);
+    }
   }
 
   const replyRes = await fetch(
@@ -631,19 +663,24 @@ async function processDoc(config) {
       await kvPut(lockKey, '1', 120);
 
       console.log(`[processDoc] processing commentId=${item.commentId} prompt="${item.prompt.slice(0, 80)}"`);
+      let rateLimit = false;
       try {
         await processSingleInvocation(item, config.docId, config.anthropicApiKey, accessToken);
-        await kvDelete(lockKey);
         console.log(`[processDoc] finished commentId=${item.commentId}`);
       } catch (err) {
-        await kvDelete(lockKey);
         const msg = err.message || '';
-        if (msg.includes('429')) {
+        if (msg.startsWith('processSingleInvocation: thread ends with non-user role')) {
+          console.log(`[processDoc] skipped commentId=${item.commentId} (thread not awaiting reply)`);
+        } else if (msg.includes('429')) {
           console.log('[processDoc] rate limited — stopping this run, will retry on next webhook');
-          break;
+          rateLimit = true;
+        } else {
+          console.error(`[processDoc] processSingleInvocation failed for commentId=${item.commentId}:`, err);
         }
-        console.error(`[processDoc] processSingleInvocation failed for commentId=${item.commentId}:`, err);
+      } finally {
+        await kvDelete(lockKey);
       }
+      if (rateLimit) break;
     }
     console.log('[processDoc] done');
   } catch (err) {

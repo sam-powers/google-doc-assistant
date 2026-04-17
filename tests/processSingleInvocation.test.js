@@ -28,7 +28,8 @@ function makeItem({ commentId = 'c1', anchorText = 'anchor text' } = {}) {
 // call 0: POST placeholder
 // call 1: GET Drive export (getDocContext)
 // call 2: POST Anthropic
-// call 3: POST real reply
+// call 3: DELETE placeholder
+// call 4: POST real reply
 function mockHappyPath(fetchMock, { replyId = 'real-reply-id', anthropicText = 'Claude says hi' } = {}) {
   fetchMock
     .mockResolvedValueOnce({ ok: true, json: async () => ({ id: 'placeholder-id' }) }) // placeholder
@@ -37,7 +38,8 @@ function mockHappyPath(fetchMock, { replyId = 'real-reply-id', anthropicText = '
       ok: true,
       json: async () => ({ content: [{ type: 'text', text: anthropicText }] }),
     })
-    .mockResolvedValueOnce({ ok: true, json: async () => ({ id: replyId }) });          // real reply
+    .mockResolvedValueOnce({ ok: true })                                                // DELETE placeholder
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ id: replyId }) });         // real reply
 }
 
 describe('processSingleInvocation', () => {
@@ -90,8 +92,9 @@ describe('processSingleInvocation', () => {
     expect(stored).not.toContain('placeholder-id');
   });
 
-  it('returns early without any fetch calls when last message role is assistant', async () => {
-    // A comment thread whose last reply is from Claude (author.me === true) → last message is assistant
+  it('throws (skipping) without any fetch calls when last message role is assistant', async () => {
+    // A comment thread whose last reply is from Claude (author.me === true) → last message is assistant.
+    // processSingleInvocation throws so the caller's finally block can release the lock.
     const item = {
       comment: {
         content: '@claude question',
@@ -100,16 +103,19 @@ describe('processSingleInvocation', () => {
       commentId: 'c1',
       anchorText: '',
     };
-    await processSingleInvocation(item, DOC_ID, API_KEY, ACCESS_TOKEN);
+    await expect(
+      processSingleInvocation(item, DOC_ID, API_KEY, ACCESS_TOKEN)
+    ).rejects.toThrow('thread ends with non-user role');
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('posts an error reply (does not throw) when Anthropic call fails', async () => {
     fetchMock
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: 'placeholder-id' }) }) // placeholder
-      .mockResolvedValueOnce({ ok: true, text: async () => 'short doc' })                 // Drive export
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: 'placeholder-id' }) })  // placeholder
+      .mockResolvedValueOnce({ ok: true, text: async () => 'short doc' })                  // Drive export
       .mockResolvedValueOnce({ ok: false, status: 429, text: async () => 'rate limited' }) // Anthropic fails
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: 'error-reply-id' }) });  // error reply
+      .mockResolvedValueOnce({ ok: true })                                                 // DELETE placeholder
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: 'error-reply-id' }) }); // error reply
 
     await expect(
       processSingleInvocation(makeItem(), DOC_ID, API_KEY, ACCESS_TOKEN)
