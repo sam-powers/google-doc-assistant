@@ -15,6 +15,7 @@ function keyToRef(key) {
   if (key.startsWith('canonical_')) return db.collection('canonical').doc(key.slice('canonical_'.length));
   if (key.startsWith('processed_')) return db.collection('processed').doc(key.slice('processed_'.length));
   if (key.startsWith('processing_')) return db.collection('locks').doc(key.slice('processing_'.length));
+  if (key.startsWith('cooldown_'))   return db.collection('locks').doc('cooldown_' + key.slice('cooldown_'.length));
   if (key.startsWith('doc_context_')) return db.collection('context').doc(key.slice('doc_context_'.length));
   return db.collection('channels').doc(key);
 }

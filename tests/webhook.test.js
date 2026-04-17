@@ -63,7 +63,9 @@ describe('handleWebhook', () => {
 
   it('returns 200 and dispatches processDoc when config matches channelId', async () => {
     const config = JSON.stringify({ docId: 'doc1', channelId: 'cid1', anthropicApiKey: 'key', activatedAt: Date.now() });
-    vi.mocked(firestore.kvGet).mockResolvedValue(config);
+    vi.mocked(firestore.kvGet)
+      .mockResolvedValueOnce(config) // channel token lookup
+      .mockResolvedValueOnce(null);  // cooldown check — not on cooldown
     const req = makeReq({
       'x-goog-resource-state': 'change',
       'x-goog-channel-token': 'my-token',
@@ -73,6 +75,42 @@ describe('handleWebhook', () => {
     await handleWebhook(req, res);
     // Fire-and-forget: res.status(200).end() is called before processDoc runs
     expect(res._status).toBe(200);
+  });
+
+  it('returns 200 and schedules deferred processDoc (no kvPut) when doc is on cooldown', async () => {
+    vi.useFakeTimers();
+    const config = JSON.stringify({ docId: 'doc1', channelId: 'cid1', anthropicApiKey: 'key', activatedAt: Date.now() });
+    vi.mocked(firestore.kvGet)
+      .mockResolvedValueOnce(config) // channel token lookup
+      .mockResolvedValueOnce('1');   // cooldown key exists
+    const req = makeReq({
+      'x-goog-resource-state': 'change',
+      'x-goog-channel-token': 'my-token',
+      'x-goog-channel-id': 'cid1',
+    });
+    const res = makeRes();
+    await handleWebhook(req, res);
+    expect(res._status).toBe(200);
+    // suppressed by cooldown — no KV write for the cooldown itself
+    expect(firestore.kvPut).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it('does not stack up multiple deferred calls when several webhooks arrive during cooldown', async () => {
+    vi.useFakeTimers();
+    const config = JSON.stringify({ docId: 'doc2', channelId: 'cid2', anthropicApiKey: 'key', activatedAt: Date.now() });
+    const makeOnCooldown = () => vi.mocked(firestore.kvGet)
+      .mockResolvedValueOnce(config) // channel token lookup
+      .mockResolvedValueOnce('1');   // on cooldown
+
+    makeOnCooldown();
+    await handleWebhook(makeReq({ 'x-goog-resource-state': 'change', 'x-goog-channel-token': 'tok2', 'x-goog-channel-id': 'cid2' }), makeRes());
+    makeOnCooldown();
+    await handleWebhook(makeReq({ 'x-goog-resource-state': 'change', 'x-goog-channel-token': 'tok2', 'x-goog-channel-id': 'cid2' }), makeRes());
+
+    // Both suppressed by cooldown — still no KV writes
+    expect(firestore.kvPut).not.toHaveBeenCalled();
+    vi.useRealTimers();
   });
 
   it('returns 200 but does not dispatch processDoc when channelId mismatches', async () => {
@@ -86,8 +124,8 @@ describe('handleWebhook', () => {
     const res = makeRes();
     await handleWebhook(req, res);
     expect(res._status).toBe(200);
-    // Only one kvGet call (for the token lookup), no second call for canonical check
-    expect(firestore.kvGet).toHaveBeenCalledTimes(1);
+    // Short-circuits at channelId mismatch before cooldown check
+    expect(firestore.kvPut).not.toHaveBeenCalled();
   });
 });
 

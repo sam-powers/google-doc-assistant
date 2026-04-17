@@ -11,6 +11,10 @@ const ENABLE_WEB_SEARCH = true;
 const app = express();
 app.use(express.json());
 
+// Tracks pending deferred processDoc calls by docId so we don't stack up
+// multiple redundant calls when several webhooks arrive during a cooldown.
+const pendingDeferred = new Map();
+
 app.post('/webhook',    (req, res) => handleWebhook(req, res));
 app.post('/register',   (req, res) => handleRegister(req, res));
 app.post('/unregister', (req, res) => handleUnregister(req, res));
@@ -98,7 +102,38 @@ async function handleWebhook(req, res) {
     return res.status(200).send('OK');
   }
 
+  // Cooldown dedup — Drive fires on every file mutation (edits, autosaves, cursor
+  // moves), not just comment additions. We coalesce bursts into a single processDoc
+  // call. When a webhook is suppressed by the cooldown, we schedule a deferred call
+  // so that an @claude mention added during the cooldown is never permanently missed.
+  const COOLDOWN_SECONDS = 15;
+  const cooldownKey = `cooldown_${config.docId}`;
   config.channelToken = channelToken;
+
+  const onCooldown = await kvGet(cooldownKey);
+  if (onCooldown) {
+    console.log(`[webhook] docId=${config.docId} on cooldown — scheduling deferred processDoc`);
+    res.status(200).end();
+
+    if (!pendingDeferred.has(config.docId)) {
+      const timer = setTimeout(() => {
+        pendingDeferred.delete(config.docId);
+        processDoc(config).catch(err => console.error('[webhook] deferred processDoc error:', err));
+      }, COOLDOWN_SECONDS * 1000);
+      pendingDeferred.set(config.docId, timer);
+    }
+    return;
+  }
+
+  // Not on cooldown — cancel any pending deferred call (this webhook will cover it)
+  // and set a fresh cooldown before dispatching.
+  const existing = pendingDeferred.get(config.docId);
+  if (existing) {
+    clearTimeout(existing);
+    pendingDeferred.delete(config.docId);
+  }
+  await kvPut(cooldownKey, '1', COOLDOWN_SECONDS);
+
   console.log(`[webhook] dispatching processDoc for docId=${config.docId}`);
 
   // Return 200 to Drive immediately, then process in the background.
