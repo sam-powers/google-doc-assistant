@@ -26,15 +26,16 @@ describe('processComment', () => {
       expect(result[0].prompt).toBe('summarize this');
     });
 
-    it('returns early and skips reply scan when top-level @claude is unanswered', () => {
-      // reply also has @claude, but early return means only one result
+    it('returns all unanswered @claude mentions including in replies', () => {
+      // both top-level and reply have @claude, both unanswered → both returned
       const comment = makeComment({
         content: '@claude top level',
         replies: [makeReply({ id: 'r1', content: '@claude follow-up' })],
       });
       const result = processComment(comment, new Set());
-      expect(result).toHaveLength(1);
+      expect(result).toHaveLength(2);
       expect(result[0].replyId).toBeNull();
+      expect(result[1].replyId).toBe('r1');
     });
 
     it('returns [] when top-level @claude is answered via processedIds', () => {

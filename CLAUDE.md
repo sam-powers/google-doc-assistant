@@ -117,6 +117,9 @@ Drive watches expire after 6 days. A daily Apps Script trigger (`renewWatch`) ch
 - **Collaborator sidebar shows setup state** even when Claude is active (activated by someone else). No `/status` endpoint on Cloud Run to check canonical channel from the sidebar.
 - **Multiplayer conflict** — if User B activates on a doc User A already activated, B's channel becomes canonical with no warning to A
 - **Watch renewal requires manual reactivation** — not seamless
+- **`pendingDeferred` is process-level** — if Cloud Run scales to multiple instances each has its own `pendingDeferred` Map. A cooldown set by one instance won't suppress another's deferred timer; both can run `processDoc` concurrently. The per-comment Firestore lock prevents duplicate replies, but Anthropic calls are wasted during scale-out. Acceptable at current scale.
+- **No rate limiting on `/register` and `/unregister`** — HMAC is the only gate. A caller with a valid (or replayed) HMAC can call these endpoints repeatedly. Mitigated by the 60s replay window and the non-guessable Cloud Run URL.
+- **Drive webhooks are not signed by Google** — the UUID format check prevents garbage tokens but cannot prove a webhook originated from Google. A network-adjacent attacker who discovers the Cloud Run URL can spoof a webhook. Impact: wasted Anthropic call + false placeholder reply. Google does not provide a signing mechanism for Drive webhooks; the Cloud Run URL's non-guessability is the mitigation.
 
 ## Post-Push Checklist
 

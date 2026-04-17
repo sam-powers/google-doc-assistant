@@ -16,16 +16,14 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('You are an assistant embedded in a Google Doc');
   });
 
-  it('uses the correct section headers', () => {
-    const prompt = buildSystemPrompt('doc context', 'highlighted text');
-    expect(prompt).toContain('Document context:');
-    expect(prompt).toContain('Highlighted text:');
-  });
-
-  it('wraps docContext and anchorText in quotes', () => {
+  it('wraps docContext and anchorText in XML tags', () => {
     const prompt = buildSystemPrompt('my context', 'my anchor');
-    expect(prompt).toContain('"my context"');
-    expect(prompt).toContain('"my anchor"');
+    expect(prompt).toContain('<document_context>');
+    expect(prompt).toContain('my context');
+    expect(prompt).toContain('</document_context>');
+    expect(prompt).toContain('<highlighted_text>');
+    expect(prompt).toContain('my anchor');
+    expect(prompt).toContain('</highlighted_text>');
   });
 
   it('includes web search instruction when ENABLE_WEB_SEARCH is true', () => {

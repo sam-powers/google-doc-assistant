@@ -10,6 +10,7 @@ vi.mock('../cloud-run/firestore.js', () => ({
 const DOC_ID = 'doc-abc';
 const API_KEY = 'sk-ant-test';
 const ACCESS_TOKEN = 'at-test';
+const PROCESSED_IDS = new Set(); // empty — no replies processed yet
 
 // A simple comment with one @claude mention and no replies
 function makeItem({ commentId = 'c1', anchorText = 'anchor text' } = {}) {
@@ -61,7 +62,7 @@ describe('processSingleInvocation', () => {
 
   it('posts a placeholder reply before calling Anthropic', async () => {
     mockHappyPath(fetchMock);
-    await processSingleInvocation(makeItem(), DOC_ID, API_KEY, ACCESS_TOKEN);
+    await processSingleInvocation(makeItem(), DOC_ID, API_KEY, ACCESS_TOKEN, PROCESSED_IDS);
 
     // First fetch call should be the placeholder POST
     const [url, opts] = fetchMock.mock.calls[0];
@@ -72,7 +73,7 @@ describe('processSingleInvocation', () => {
 
   it('posts the Anthropic reply text as a second Drive reply', async () => {
     mockHappyPath(fetchMock, { anthropicText: 'Here is my answer' });
-    await processSingleInvocation(makeItem(), DOC_ID, API_KEY, ACCESS_TOKEN);
+    await processSingleInvocation(makeItem(), DOC_ID, API_KEY, ACCESS_TOKEN, PROCESSED_IDS);
 
     // Last fetch call is the real reply POST
     const lastCall = fetchMock.mock.calls[fetchMock.mock.calls.length - 1];
@@ -82,7 +83,7 @@ describe('processSingleInvocation', () => {
 
   it('calls markProcessed with the real reply ID (not the placeholder ID)', async () => {
     mockHappyPath(fetchMock, { replyId: 'real-reply-xyz' });
-    await processSingleInvocation(makeItem(), DOC_ID, API_KEY, ACCESS_TOKEN);
+    await processSingleInvocation(makeItem(), DOC_ID, API_KEY, ACCESS_TOKEN, PROCESSED_IDS);
 
     const putCalls = vi.mocked(firestore.kvPut).mock.calls;
     const processedCall = putCalls.find(c => c[0].startsWith('processed_'));
@@ -104,12 +105,12 @@ describe('processSingleInvocation', () => {
       anchorText: '',
     };
     await expect(
-      processSingleInvocation(item, DOC_ID, API_KEY, ACCESS_TOKEN)
+      processSingleInvocation(item, DOC_ID, API_KEY, ACCESS_TOKEN, PROCESSED_IDS)
     ).rejects.toThrow('thread ends with non-user role');
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('posts an error reply (does not throw) when Anthropic call fails', async () => {
+  it('posts a generic error reply (does not throw) when Anthropic call fails', async () => {
     fetchMock
       .mockResolvedValueOnce({ ok: true, json: async () => ({ id: 'placeholder-id' }) })  // placeholder
       .mockResolvedValueOnce({ ok: true, text: async () => 'short doc' })                  // Drive export
@@ -118,12 +119,15 @@ describe('processSingleInvocation', () => {
       .mockResolvedValueOnce({ ok: true, json: async () => ({ id: 'error-reply-id' }) }); // error reply
 
     await expect(
-      processSingleInvocation(makeItem(), DOC_ID, API_KEY, ACCESS_TOKEN)
+      processSingleInvocation(makeItem(), DOC_ID, API_KEY, ACCESS_TOKEN, PROCESSED_IDS)
     ).resolves.toBeUndefined(); // does not throw
 
     const lastCall = fetchMock.mock.calls[fetchMock.mock.calls.length - 1];
     const body = JSON.parse(lastCall[1].body);
+    // Error text should be generic — must not contain internal error details
     expect(body.content).toContain('Claude encountered an error');
+    expect(body.content).not.toContain('429');
+    expect(body.content).not.toContain('rate limited');
   });
 
   it('throws when the placeholder POST fails', async () => {
@@ -132,7 +136,7 @@ describe('processSingleInvocation', () => {
     });
 
     await expect(
-      processSingleInvocation(makeItem(), DOC_ID, API_KEY, ACCESS_TOKEN)
+      processSingleInvocation(makeItem(), DOC_ID, API_KEY, ACCESS_TOKEN, PROCESSED_IDS)
     ).rejects.toThrow('403');
 
     // No further fetch calls after placeholder failure
