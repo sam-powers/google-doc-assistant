@@ -6,3 +6,9 @@ google_docs_research_agent_brief_v3.html
 .gitignore
 node_modules/
 worker/**
+cloud-run/**
+tests/**
+vitest.config.js
+package.json
+package-lock.json
+docs/**

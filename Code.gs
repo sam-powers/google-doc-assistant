@@ -1,7 +1,7 @@
 // ─── v2 Constants ─────────────────────────────────────────────────────────────
 var SERVICE_ACCOUNT_EMAIL = 'claude-assistant@claude-doc-assistant.iam.gserviceaccount.com';
-var WORKER_WEBHOOK_URL = 'https://claude-doc-assistant.samueldarinpowers.workers.dev/webhook';
-var WORKER_REGISTER_URL = 'https://claude-doc-assistant.samueldarinpowers.workers.dev/register';
+var WORKER_WEBHOOK_URL = 'https://claude-doc-assistant-1076978511316.us-central1.run.app/webhook';
+var WORKER_REGISTER_URL = 'https://claude-doc-assistant-1076978511316.us-central1.run.app/register';
 var WATCH_DURATION_MS = 6 * 24 * 60 * 60 * 1000; // 6 days in ms
 
 // ─── Menu ────────────────────────────────────────────────────────────────────

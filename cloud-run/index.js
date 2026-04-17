@@ -296,7 +296,7 @@ async function summarizeWithHaiku(text, apiKey, targetWords) {
       method: 'POST',
       headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5',
+        model: 'claude-haiku-4-5-20251001',
         max_tokens: Math.ceil((targetWords / 0.75) * 1.1),
         messages: [{
           role: 'user',
@@ -489,7 +489,8 @@ async function processDoc(config) {
       if (comment.resolved) continue;
       const commentAge = new Date(comment.createdTime).getTime();
       const isNew      = commentAge >= config.activatedAt;
-      const hasAtClaude = /@claude/i.test(comment.content);
+      const allContent = [comment.content, ...(comment.replies || []).map(r => r.content)];
+      const hasAtClaude = allContent.some(c => /@claude/i.test(c));
       if (hasAtClaude) console.log(`[processDoc] @claude comment id=${comment.id} isNew=${isNew}`);
       if (!isNew) continue;
       const pending = processComment(comment, processedIds);
@@ -511,6 +512,7 @@ async function processDoc(config) {
       console.log(`[processDoc] processing commentId=${item.commentId} prompt="${item.prompt.slice(0, 80)}"`);
       try {
         await processSingleInvocation(item, config.docId, config.anthropicApiKey, accessToken);
+        await kvDelete(lockKey);
         console.log(`[processDoc] finished commentId=${item.commentId}`);
       } catch (err) {
         await kvDelete(lockKey);
