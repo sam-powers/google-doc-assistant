@@ -506,8 +506,8 @@ async function processDoc(config) {
         console.log(`[processDoc] commentId=${item.commentId} already in-flight, skipping`);
         continue;
       }
-      // 60s lock — KV minimum; processing typically finishes in <60s on Cloud Run
-      await kvPut(lockKey, '1', 60);
+      // 120s lock — gives web search enough runway (web search adds 15–30s)
+      await kvPut(lockKey, '1', 120);
 
       console.log(`[processDoc] processing commentId=${item.commentId} prompt="${item.prompt.slice(0, 80)}"`);
       try {
