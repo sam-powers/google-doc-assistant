@@ -17,7 +17,7 @@ Each flow is broken into steps across a timeline. For each step, five layers are
 **Scope labels** indicate where state lives:
 - `[user]` — stored per-user, applies across all docs (Google Apps Script UserProperties)
 - `[user × doc]` — stored per-user, scoped to this specific doc (UserProperties keyed by docId)
-- `[doc]` — stored at the doc level, shared across all users (Cloudflare KV or Drive permissions)
+- `[doc]` — stored at the doc level, shared across all users (Firestore or Drive permissions)
 
 ---
 
@@ -48,7 +48,7 @@ If a watch already exists and hasn't expired → sidebar skips setup and shows a
 | **Physical Evidence** | API key input field (password-masked). Test button. Status line below input. |
 | **User Action** | Pastes Anthropic API key. Clicks Test. |
 | **Frontstage** | Status line shows "Testing…" while in flight. On success: "✓ Key is valid" (green). On failure: "✗ [error message]" (red). Activate button enabled only on success. |
-| **Backstage** | `testApiKey(key)` → calls Anthropic API with `claude-haiku-4-5`, `max_tokens: 10`, message "Hi". Returns `{ ok: true }` or `{ ok: false, error: "..." }`. Key is NOT saved at this step. `[user]` |
+| **Backstage** | `testApiKey(key)` → calls Anthropic API with `claude-haiku-4-5-20251001`, `max_tokens: 10`, message "Hi". Returns `{ ok: true }` or `{ ok: false, error: "..." }`. Key is NOT saved at this step. `[user]` |
 | **Support Processes** | Anthropic API (`/v1/messages`) |
 
 ---
@@ -65,7 +65,7 @@ If a watch already exists and hasn't expired → sidebar skips setup and shows a
 | | **3b. Save key** — `saveSettings(key)` stores key in UserProperties. `[user]` |
 | | **3c. Set up doc** — `setupDoc()` runs three sub-steps (see below). |
 | | **3d. Return status** — `setupDoc()` returns `{ expiresAt: "MM/DD/YYYY" }` to sidebar. |
-| **Support Processes** | Anthropic API, Drive API v3, Cloudflare Worker |
+| **Support Processes** | Anthropic API, Drive API v3, Cloud Run service |
 
 **setupDoc() detail (Step 3c):**
 
@@ -73,8 +73,8 @@ If a watch already exists and hasn't expired → sidebar skips setup and shows a
 |---|---|---|
 | Share doc | `Drive.Permissions.create` — grants service account `claude-assistant@...` commenter access on this doc. Silent if already has access. | `[doc]` — permanent Drive permission until manually revoked |
 | Stop old watch | If UserProperties has a prior `watch_{docId}_channelId` + `watch_{docId}_resourceId`, calls `Drive.Channels.stop`. Errors silently ignored (channel may have expired). | `[user × doc]` |
-| Register watch | `Drive.Changes.watch` — registers a push notification channel pointing to the Cloudflare Worker. Returns `channelId`, `channelToken`, `resourceId`, `expiration` (6 days from now). | `[user × doc]` — watch is owned by this user's OAuth session |
-| Register with worker | `POST /register` to Cloudflare Worker with `{ channelToken, channelId, docId, anthropicApiKey, activatedAt }`. Worker stores two KV entries: `channelToken → { docId, apiKey, channelId, activatedAt }` and `canonical_{docId} → channelToken`. Last-write-wins: if another user activates later, their channel becomes canonical. | `[doc]` — Cloudflare KV |
+| Register watch | `Drive.Changes.watch` — registers a push notification channel pointing to the Cloud Run service. Returns `channelId`, `channelToken`, `resourceId`, `expiration` (6 days from now). | `[user × doc]` — watch is owned by this user's OAuth session |
+| Register with service | `POST /register` to Cloud Run service with `{ channelToken, channelId, docId, anthropicApiKey, activatedAt }`. Service stores two Firestore entries: `channels/{channelToken}` and `canonical/{docId} → channelToken`. Last-write-wins: if another user activates later, their channel becomes canonical. | `[doc]` — Firestore |
 | Store watch metadata | `setDocWatch(docId, ...)` writes `watch_{docId}_channelId`, `watch_{docId}_channelToken`, `watch_{docId}_resourceId`, `watch_{docId}_expiration` to UserProperties. Also appends `docId` to `watchDocIds` list. | `[user × doc]` |
 | Install renewal trigger | `installRenewalTrigger()` — removes any existing `renewWatch` trigger, installs a new daily time-based trigger. One trigger covers all docs activated by this user. | `[user]` |
 
@@ -118,33 +118,33 @@ If a watch already exists and hasn't expired → sidebar skips setup and shows a
 | **Physical Evidence** | Nothing visible. |
 | **User Action** | None. |
 | **Frontstage** | Nothing visible. |
-| **Backstage** | Google Drive detects a change to the file. Fires a POST to the Cloudflare Worker at `/webhook` with headers: `X-Goog-Resource-State: update`, `X-Goog-Channel-Token: {channelToken}`, `X-Goog-Channel-ID: {channelId}`, `X-Goog-Resource-ID: {resourceId}`. Note: Drive fires for ALL changes to the doc (edits, comments, permission changes) — not just comment additions. | `[doc]` |
+| **Backstage** | Google Drive detects a change to the file. Fires a POST to the Cloud Run service at `/webhook` with headers: `X-Goog-Resource-State: update`, `X-Goog-Channel-Token: {channelToken}`, `X-Goog-Channel-ID: {channelId}`, `X-Goog-Resource-ID: {resourceId}`. Note: Drive fires for ALL changes to the doc (edits, comments, permission changes) — not just comment additions. | `[doc]` |
 | **Support Processes** | Google Drive push notifications infrastructure |
 
 *Timing note: Drive typically fires within 1–5 seconds of the change. This is not guaranteed.*
 
 ---
 
-### Step 3 — Worker receives webhook (~same time as Step 2)
+### Step 3 — Service receives webhook (~same time as Step 2)
 
 | Layer | Detail |
 |---|---|
 | **Physical Evidence** | Nothing visible. |
 | **User Action** | None. |
 | **Frontstage** | Nothing visible. |
-| **Backstage** | Worker runs the following synchronously before returning 200 to Drive (must complete within ~10s or Drive retries): |
+| **Backstage** | Service runs the following synchronously before returning 200 to Drive (must complete within ~10s or Drive retries): |
 | | **Guard: sync ping** — if `X-Goog-Resource-State: sync`, return 200 immediately. No processing. |
-| | **Guard: KV lookup** — looks up `channelToken` in Cloudflare KV. If not found, return 200 silently (orphaned channel). |
+| | **Guard: Firestore lookup** — looks up `channelToken` in Firestore `channels/` collection. If not found, return 200 silently (orphaned channel). |
 | | **Guard: channelId match** — compares `X-Goog-Channel-ID` to stored `channelId`. Mismatch → return 200 silently (anti-spoofing). |
-| | **Guard: canonical check** — reads `canonical_{docId}` from KV. If this `channelToken` doesn't match the canonical value, returns 200 silently. Only the canonical (most recently activated) channel processes. `[doc]` |
-| | **Dispatch** — calls `ctx.waitUntil(processDoc(...))`. Returns 200 to Drive immediately. Processing continues async. |
-| **Support Processes** | Cloudflare Workers runtime, Cloudflare KV |
+| | **Guard: canonical check** — reads `canonical/{docId}` from Firestore. If this `channelToken` doesn't match the canonical value, returns 200 silently. Only the canonical (most recently activated) channel processes. `[doc]` |
+| | **Dispatch** — calls `res.status(200).end()` to satisfy Drive's 10s window, then continues processing async via `processDoc(config).catch(...)`. Cloud Run's 900s timeout gives plenty of runway. |
+| **Support Processes** | Cloud Run (us-central1), Firestore |
 
-*`ctx.waitUntil` is critical: it allows the worker to return 200 (satisfying Drive's 10s window) while continuing to process in the background. Without it, Drive would retry on timeout.*
+*Returning 200 immediately is critical: it satisfies Drive's 10s window. Cloud Run continues processing after the response is sent.*
 
 ---
 
-### Step 4 — Worker processes the doc (~4s sleep + API calls)
+### Step 4 — Service processes the doc (~4s sleep + API calls)
 
 | Layer | Detail |
 |---|---|
@@ -155,18 +155,19 @@ If a watch already exists and hasn't expired → sidebar skips setup and shows a
 | | **4a. Sleep 4s** — waits for Drive's comment indexing lag before fetching. Comments added to the doc may not appear in the Drive API immediately. |
 | | **4b. Fetch comments** — `fetchAllComments(docId, serviceAccountToken)` — paginated Drive API call using service account credentials. Returns all unresolved comments with full reply threads. Author identity returned as `{ displayName, me }` — email addresses are not returned when fetched by a service account. `[doc]` |
 | | **4c. Filter comments** — skips resolved comments. Skips comments created before `activatedAt` (timestamp stored at activation). Only processes comments newer than activation. `[doc]` |
-| | **4d. Find pending invocations** — `processComment()` checks each comment for `@claude` in the body or replies. "Already answered" = last reply has `author.me === true` (service account's own reply) OR reply ID is in the processed set. If already answered, skips. |
-| | **4e. Per-comment lock** — for each pending comment, reads `processing_{commentId}` from KV. If key exists (set within the last 5 min), skips (another webhook is already handling it). If not, writes the lock key with 5min TTL. `[doc]` |
-| | **4f. Doc context** — `getDocContext()` reads `doc_context_{docId}` from KV cache (6hr TTL). On cache miss: exports doc as plain text via Drive export API, then either uses full text (≤500 words) or summarizes with `claude-haiku-4-5` (>500 words). `[doc]` |
+| | **4d. Find pending invocations** — `processComment()` checks each comment for `@claude` in the body or any reply. "Already answered" = last reply has `author.me === true` (service account's own reply) OR reply ID is in the processed set. If already answered, skips. |
+| | **4e. Per-comment lock** — for each pending comment, reads `locks/{commentId}` from Firestore. If key exists and `expiresAt > now`, skips (another webhook is already handling it). If not, writes the lock with 120s TTL. `[doc]` |
+| | **4f. Doc context** — `getDocContext()` reads `context/{docId}` from Firestore cache (1hr TTL). On cache miss: exports doc as plain text via Drive export API, then either uses full text (≤500 words) or summarizes with `claude-haiku-4-5-20251001` (>500 words). `[doc]` |
 | | **4g. Build thread history** — `buildThreadHistory()` + `normalizeMessages()` — reconstructs the full comment thread as an Anthropic messages array, with service account replies as `assistant` role and everything else as `user`. |
 | | **4h. Call Anthropic** — `POST /v1/messages` with model `claude-sonnet-4-6`, system prompt (doc context + highlighted text), thread history, `web_search` tool enabled, `max_tokens: 4096`. Uses the API key stored at activation time (the activating user's key, not the commenter's). `[user × doc]` — key belongs to activating user |
-| | **4i. Post reply** — `POST /drive/v3/files/{docId}/comments/{commentId}/replies` using service account OAuth token. Reply content = all text blocks from Anthropic response joined with double newline. |
-| | **4j. Mark processed** — stores reply ID in `processed_{docId}` KV array, capped at 500 entries. `[doc]` |
-| **Support Processes** | Cloudflare KV, Drive API v3, Anthropic API |
+| | **4i. Post placeholder** — immediately posts a brief placeholder reply ("Working on it…") under the service account while Anthropic processes. `[doc]` |
+| | **4j. Post reply** — `POST /drive/v3/files/{docId}/comments/{commentId}/replies` using service account OAuth token. Reply content = all text blocks from Anthropic response joined with double newline. Replaces or follows placeholder. |
+| | **4k. Mark processed** — stores reply ID in `processed/{docId}` Firestore document (JSON array, capped at 500 entries). Releases lock by deleting `locks/{commentId}`. `[doc]` |
+| **Support Processes** | Firestore, Drive API v3, Anthropic API (with web search tool) |
 
 ---
 
-### Step 5 — Reply appears in doc (~10–30s after original comment)
+### Step 5 — Reply appears in doc (~10–60s after original comment)
 
 | Layer | Detail |
 |---|---|
@@ -183,12 +184,12 @@ If a watch already exists and hasn't expired → sidebar skips setup and shows a
 |---|---|
 | User submits comment | T+0 |
 | Drive fires webhook | T+0 to T+5s |
-| Worker receives, dispatches | T+5s (±) |
+| Service receives, dispatches | T+5s (±) |
 | Drive indexing sleep | T+5s to T+9s |
 | Fetch comments | T+9s |
-| Anthropic call (simple query) | T+9s to T+15s |
-| Anthropic call (web search) | T+9s to T+25s |
-| Reply appears | T+15s to T+30s |
+| Anthropic call (simple query, no web search) | T+9s to T+20s |
+| Anthropic call (with web search) | T+9s to T+45s |
+| Reply appears | T+20s to T+60s |
 
 ---
 
@@ -219,14 +220,14 @@ The most common usage pattern after the first exchange:
 | **Frontstage** | Button shows "Deactivating…" spinner. On success: sidebar transitions to setup state. Input is cleared. Key status is cleared. Activate button disabled. API key is NOT pre-filled (never surfaced again after setup). |
 | **Backstage** | `deactivateDoc()` runs four steps: |
 | | **1. Stop Drive watch** — `Drive.Channels.stop({ id: channelId, resourceId: resourceId })`. Errors silently ignored (may have expired). `[user × doc]` |
-| | **2. Unregister from worker** — `POST /unregister` with `{ channelToken, docId }`. Worker deletes `channelToken` KV entry. If this token matches `canonical_{docId}`, deletes that entry too. Future Drive events for this doc will be silently ignored. `[doc]` |
+| | **2. Unregister from service** — `POST /unregister` with `{ channelToken, docId }`. Service deletes `channels/{channelToken}` from Firestore. If this token matches `canonical/{docId}`, deletes that entry too. Future Drive events for this doc will be silently ignored. `[doc]` |
 | | **3. Clear watch state** — `clearDocWatch(docId)` deletes all `watch_{docId}_*` UserProperties. Removes docId from `watchDocIds`. `[user × doc]` |
 | | **4. Delete API key** — `deleteProperty('anthropicApiKey')` from UserProperties. `[user]` |
-| **Support Processes** | Drive API v3, Cloudflare Worker + KV |
+| **Support Processes** | Drive API v3, Cloud Run service + Firestore |
 
 **What deactivation does NOT do:**
 - Does not remove the service account's commenter permission on the doc (Drive permission persists)
-- Does not delete processed reply IDs from Cloudflare KV (they expire naturally)
+- Does not delete processed reply IDs from Firestore (they remain until manually cleared)
 - Does not affect other users' views of the doc's comment history
 
 ---
@@ -243,7 +244,7 @@ Drive push notification channels expire after 6 days. A daily trigger attempts r
 | For each docId: check expiry | Reads `watch_{docId}_expiration`. If expiring within 24 hours: | `[user × doc]` |
 | Stop old channel | `Drive.Channels.stop` — errors silently ignored. | `[user × doc]` |
 | Clear watch state | `clearDocWatch(docId)` — removes all `watch_{docId}_*` properties. | `[user × doc]` |
-| No auto-renewal | The trigger cannot call `setupDoc()` — that requires an active doc session and the user's OAuth token. The doc's canonical channel entry in Cloudflare KV is NOT cleared. | — |
+| No auto-renewal | The trigger cannot call `setupDoc()` — that requires an active doc session and the user's OAuth token. The doc's canonical channel entry in Firestore is NOT cleared. | — |
 | User must reactivate | Next time the user opens the sidebar for that doc, `getWatchStatus()` returns `{ active: false }`. Sidebar shows setup state. User re-enters key and re-activates. | — |
 
 **Gap window:** After the watch expires and before the user reactivates, `@claude` comments in the doc go unanswered silently. No notification is sent to the user.
@@ -257,11 +258,11 @@ Drive push notification channels expire after 6 days. A daily trigger attempts r
 | Step | What User B sees | What's actually happening |
 |---|---|---|
 | Opens sidebar | **Setup state** — API key input, no indication that Claude is active | `getWatchStatus()` checks User B's UserProperties. User B has no `watch_{docId}_*` entries → returns `{ active: false }`. Sidebar shows setup state. |
-| Types `@claude` in a comment | Comment is added | Drive fires webhook. Worker looks up `canonical_{docId}` → finds User A's channelToken. Processes using **User A's stored API key**. |
+| Types `@claude` in a comment | Comment is added | Drive fires webhook. Service looks up `canonical/{docId}` → finds User A's channelToken. Processes using **User A's stored API key**. |
 | Claude replies | Reply appears under "Claude Assistant" | Normal reply flow, identical to Flow 2 from User A's perspective. |
-| User B activates | Sidebar shows active state for User B | User B's `setupDoc()` runs. Worker stores a new `canonical_{docId}` → User B's channelToken. **User A's channel is still alive in Drive and KV, but is no longer canonical.** User A's webhook events will be silently skipped. User A has no indication this happened. |
+| User B activates | Sidebar shows active state for User B | User B's `setupDoc()` runs. Service stores a new `canonical/{docId}` → User B's channelToken. **User A's channel is still alive in Drive and Firestore, but is no longer canonical.** User A's webhook events will be silently skipped. User A has no indication this happened. |
 
-**Known limitation:** There is no mechanism to detect from the sidebar whether another user has already activated Claude on this doc. User B sees "setup" even though Claude is fully working. Fixing this would require a worker `/status` endpoint that checks `canonical_{docId}` in KV and returns whether the doc is active.
+**Known limitation:** There is no mechanism to detect from the sidebar whether another user has already activated Claude on this doc. User B sees "setup" even though Claude is fully working. Fixing this would require a `/status` endpoint that checks `canonical/{docId}` in Firestore and returns whether the doc is active.
 
 ---
 
@@ -272,11 +273,11 @@ Drive push notification channels expire after 6 days. A daily trigger attempts r
 | Anthropic API key | Google UserProperties (`anthropicApiKey`) | Per user | Until deactivation |
 | Watch channel metadata | Google UserProperties (`watch_{docId}_*`) | Per user × per doc | Until deactivation or expiry |
 | All activated docIds | Google UserProperties (`watchDocIds`) | Per user | Updated on activate/deactivate |
-| Canonical channel pointer | Cloudflare KV (`canonical_{docId}`) | Per doc | Until deactivate or overwrite |
-| Channel config + API key | Cloudflare KV (`{channelToken}`) | Per channel | Until deactivate |
-| Processed reply IDs | Cloudflare KV (`processed_{docId}`) | Per doc | Rolling window, capped at 500 |
-| In-flight lock | Cloudflare KV (`processing_{commentId}`) | Per comment | 5-minute TTL |
-| Doc context cache | Cloudflare KV (`doc_context_{docId}`) | Per doc | 6-hour TTL |
-| Service account token | Cloudflare KV (`sa_token_cache`) | Global | 55-minute TTL |
+| Canonical channel pointer | Firestore `canonical/{docId}` | Per doc | Until deactivate or overwrite |
+| Channel config + API key | Firestore `channels/{channelToken}` | Per channel | Until deactivate |
+| Processed reply IDs | Firestore `processed/{docId}` | Per doc | Rolling window, capped at 500 |
+| In-flight lock | Firestore `locks/{commentId}` | Per comment | 120s TTL (TTL policy on `locks` collection) |
+| Doc context cache | Firestore `context/{docId}` | Per doc | 1-hour TTL (TTL policy on `context` collection) |
+| Service account token | Firestore `cache/sa_token` | Global | 55-minute TTL (TTL policy on `cache` collection) |
 | Service account permission | Google Drive permission on file | Per doc | Permanent (until manually revoked) |
 | Renewal trigger | Apps Script time-based trigger | Per user | Until user uninstalls add-on |
