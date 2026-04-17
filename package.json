@@ -6,6 +6,7 @@
     "test:watch": "vitest"
   },
   "devDependencies": {
+    "express": "^5.2.1",
     "vitest": "^2.0.0"
   }
 }

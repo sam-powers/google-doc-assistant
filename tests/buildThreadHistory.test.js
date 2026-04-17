@@ -1,59 +1,52 @@
-import { buildThreadHistory } from '../worker/index.js';
+import { buildThreadHistory } from '../cloud-run/index.js';
 
-const CLAUDE_EMAIL = 'claude-assistant@claude-doc-assistant.iam.gserviceaccount.com';
+// Cloud Run uses author.me (boolean) for role detection — Drive API does not
+// return emailAddress when fetched by a service account. author.me === true
+// means the service account (Claude) wrote it.
 
-function makeReply({ id = 'r1', content, email = 'user@example.com' } = {}) {
-  return { id, content, author: { emailAddress: email } };
+function makeReply({ id = 'r1', content, isMe = false } = {}) {
+  return { id, content, author: { me: isMe } };
 }
 
 describe('buildThreadHistory', () => {
   it('turns top-level comment into a user message', () => {
     const comment = { content: '@claude hello', replies: [] };
-    const messages = buildThreadHistory(comment, CLAUDE_EMAIL);
+    const messages = buildThreadHistory(comment);
     expect(messages[0]).toEqual({ role: 'user', content: 'hello' });
   });
 
-  it('assigns role=assistant to replies authored by Claude', () => {
+  it('assigns role=assistant to replies where author.me === true', () => {
     const comment = {
       content: '@claude question',
-      replies: [makeReply({ content: 'my answer', email: CLAUDE_EMAIL })],
+      replies: [makeReply({ content: 'my answer', isMe: true })],
     };
-    const messages = buildThreadHistory(comment, CLAUDE_EMAIL);
+    const messages = buildThreadHistory(comment);
     expect(messages[1].role).toBe('assistant');
     expect(messages[1].content).toBe('my answer');
   });
 
-  it('assigns role=user to replies from non-Claude authors', () => {
+  it('assigns role=user to replies where author.me is falsy', () => {
     const comment = {
       content: '@claude question',
-      replies: [makeReply({ content: 'follow up', email: 'user@example.com' })],
+      replies: [makeReply({ content: 'follow up', isMe: false })],
     };
-    const messages = buildThreadHistory(comment, CLAUDE_EMAIL);
+    const messages = buildThreadHistory(comment);
     expect(messages[1].role).toBe('user');
   });
 
   it('strips @claude from all messages', () => {
     const comment = {
       content: '@claude initial',
-      replies: [makeReply({ content: '@claude follow', email: 'user@example.com' })],
+      replies: [makeReply({ content: '@claude follow', isMe: false })],
     };
-    const messages = buildThreadHistory(comment, CLAUDE_EMAIL);
+    const messages = buildThreadHistory(comment);
     expect(messages[0].content).not.toContain('@claude');
     expect(messages[1].content).not.toContain('@claude');
   });
 
-  it('matches Claude email case-insensitively', () => {
-    const comment = {
-      content: 'question',
-      replies: [makeReply({ content: 'reply', email: CLAUDE_EMAIL.toUpperCase() })],
-    };
-    const messages = buildThreadHistory(comment, CLAUDE_EMAIL);
-    expect(messages[1].role).toBe('assistant');
-  });
-
   it('returns only one user message when there are no replies', () => {
     const comment = { content: '@claude alone', replies: [] };
-    const messages = buildThreadHistory(comment, CLAUDE_EMAIL);
+    const messages = buildThreadHistory(comment);
     expect(messages).toHaveLength(1);
     expect(messages[0].role).toBe('user');
   });
@@ -62,12 +55,12 @@ describe('buildThreadHistory', () => {
     const comment = {
       content: '@claude first',
       replies: [
-        makeReply({ id: 'r1', content: 'response one', email: CLAUDE_EMAIL }),
-        makeReply({ id: 'r2', content: '@claude second', email: 'user@example.com' }),
-        makeReply({ id: 'r3', content: 'response two', email: CLAUDE_EMAIL }),
+        makeReply({ id: 'r1', content: 'response one', isMe: true }),
+        makeReply({ id: 'r2', content: '@claude second', isMe: false }),
+        makeReply({ id: 'r3', content: 'response two', isMe: true }),
       ],
     };
-    const messages = buildThreadHistory(comment, CLAUDE_EMAIL);
+    const messages = buildThreadHistory(comment);
     expect(messages.map(m => m.role)).toEqual(['user', 'assistant', 'user', 'assistant']);
   });
 });

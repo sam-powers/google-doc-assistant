@@ -16,7 +16,10 @@ app.post('/register',   (req, res) => handleRegister(req, res));
 app.post('/unregister', (req, res) => handleUnregister(req, res));
 
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => console.log(`Listening on port ${PORT}`));
+/* c8 ignore next */
+if (process.env.NODE_ENV !== 'test') {
+  app.listen(PORT, () => console.log(`Listening on port ${PORT}`));
+}
 
 // ---------------------------------------------------------------------------
 // Endpoint handlers
@@ -529,3 +532,10 @@ async function processDoc(config) {
     console.error('[processDoc] fatal error:', err);
   }
 }
+
+export {
+  processComment, buildThreadHistory, normalizeMessages,
+  buildSystemPrompt, summarizeWithHaiku, getDocContext,
+  processSingleInvocation, handleWebhook, handleRegister,
+  stripAtClaude, containsAtClaude,
+};

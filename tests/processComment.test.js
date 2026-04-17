@@ -1,4 +1,4 @@
-import { processComment } from '../worker/index.js';
+import { processComment } from '../cloud-run/index.js';
 
 function makeComment({ id = 'c1', content, replies = [], quotedValue = '' } = {}) {
   return {

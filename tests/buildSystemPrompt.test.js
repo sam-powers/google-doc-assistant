@@ -1,4 +1,4 @@
-import { buildSystemPrompt } from '../worker/index.js';
+import { buildSystemPrompt } from '../cloud-run/index.js';
 
 describe('buildSystemPrompt', () => {
   it('includes the document context', () => {
@@ -28,9 +28,9 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('"my anchor"');
   });
 
-  it('does not include web search instruction when ENABLE_WEB_SEARCH is false', () => {
-    // ENABLE_WEB_SEARCH is hardcoded false in the module
+  it('includes web search instruction when ENABLE_WEB_SEARCH is true', () => {
+    // ENABLE_WEB_SEARCH is hardcoded true in cloud-run/index.js
     const prompt = buildSystemPrompt('doc', 'anchor');
-    expect(prompt).not.toContain('If you search the web');
+    expect(prompt).toContain('If you search the web');
   });
 });

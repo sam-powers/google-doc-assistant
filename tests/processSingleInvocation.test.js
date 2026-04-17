@@ -1,18 +1,15 @@
-import { processSingleInvocation } from '../worker/index.js';
+import { processSingleInvocation } from '../cloud-run/index.js';
+import * as firestore from '../cloud-run/firestore.js';
 
-const CLAUDE_EMAIL = 'claude-assistant@claude-doc-assistant.iam.gserviceaccount.com';
+vi.mock('../cloud-run/firestore.js', () => ({
+  kvGet: vi.fn(),
+  kvPut: vi.fn(),
+  kvDelete: vi.fn(),
+}));
+
 const DOC_ID = 'doc-abc';
 const API_KEY = 'sk-ant-test';
 const ACCESS_TOKEN = 'at-test';
-
-function makeEnv() {
-  return {
-    DOC_CONFIGS: {
-      get: vi.fn().mockResolvedValue(null), // cache miss by default
-      put: vi.fn().mockResolvedValue(undefined),
-    },
-  };
-}
 
 // A simple comment with one @claude mention and no replies
 function makeItem({ commentId = 'c1', anchorText = 'anchor text' } = {}) {
@@ -45,21 +42,24 @@ function mockHappyPath(fetchMock, { replyId = 'real-reply-id', anthropicText = '
 
 describe('processSingleInvocation', () => {
   let fetchMock;
-  let env;
 
   beforeEach(() => {
     fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
-    env = makeEnv();
+    // cache miss by default
+    vi.mocked(firestore.kvGet).mockResolvedValue(null);
+    vi.mocked(firestore.kvPut).mockResolvedValue(undefined);
+    vi.mocked(firestore.kvDelete).mockResolvedValue(undefined);
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.clearAllMocks();
   });
 
   it('posts a placeholder reply before calling Anthropic', async () => {
     mockHappyPath(fetchMock);
-    await processSingleInvocation(makeItem(), DOC_ID, API_KEY, ACCESS_TOKEN, env);
+    await processSingleInvocation(makeItem(), DOC_ID, API_KEY, ACCESS_TOKEN);
 
     // First fetch call should be the placeholder POST
     const [url, opts] = fetchMock.mock.calls[0];
@@ -70,7 +70,7 @@ describe('processSingleInvocation', () => {
 
   it('posts the Anthropic reply text as a second Drive reply', async () => {
     mockHappyPath(fetchMock, { anthropicText: 'Here is my answer' });
-    await processSingleInvocation(makeItem(), DOC_ID, API_KEY, ACCESS_TOKEN, env);
+    await processSingleInvocation(makeItem(), DOC_ID, API_KEY, ACCESS_TOKEN);
 
     // Last fetch call is the real reply POST
     const lastCall = fetchMock.mock.calls[fetchMock.mock.calls.length - 1];
@@ -80,9 +80,9 @@ describe('processSingleInvocation', () => {
 
   it('calls markProcessed with the real reply ID (not the placeholder ID)', async () => {
     mockHappyPath(fetchMock, { replyId: 'real-reply-xyz' });
-    await processSingleInvocation(makeItem(), DOC_ID, API_KEY, ACCESS_TOKEN, env);
+    await processSingleInvocation(makeItem(), DOC_ID, API_KEY, ACCESS_TOKEN);
 
-    const putCalls = env.DOC_CONFIGS.put.mock.calls;
+    const putCalls = vi.mocked(firestore.kvPut).mock.calls;
     const processedCall = putCalls.find(c => c[0].startsWith('processed_'));
     expect(processedCall).toBeDefined();
     const stored = JSON.parse(processedCall[1]);
@@ -91,16 +91,16 @@ describe('processSingleInvocation', () => {
   });
 
   it('returns early without any fetch calls when last message role is assistant', async () => {
-    // A comment thread whose last reply is from Claude → last message is assistant
+    // A comment thread whose last reply is from Claude (author.me === true) → last message is assistant
     const item = {
       comment: {
         content: '@claude question',
-        replies: [{ id: 'r1', content: 'answer', author: { emailAddress: CLAUDE_EMAIL } }],
+        replies: [{ id: 'r1', content: 'answer', author: { me: true } }],
       },
       commentId: 'c1',
       anchorText: '',
     };
-    await processSingleInvocation(item, DOC_ID, API_KEY, ACCESS_TOKEN, env);
+    await processSingleInvocation(item, DOC_ID, API_KEY, ACCESS_TOKEN);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -112,7 +112,7 @@ describe('processSingleInvocation', () => {
       .mockResolvedValueOnce({ ok: true, json: async () => ({ id: 'error-reply-id' }) });  // error reply
 
     await expect(
-      processSingleInvocation(makeItem(), DOC_ID, API_KEY, ACCESS_TOKEN, env)
+      processSingleInvocation(makeItem(), DOC_ID, API_KEY, ACCESS_TOKEN)
     ).resolves.toBeUndefined(); // does not throw
 
     const lastCall = fetchMock.mock.calls[fetchMock.mock.calls.length - 1];
@@ -126,7 +126,7 @@ describe('processSingleInvocation', () => {
     });
 
     await expect(
-      processSingleInvocation(makeItem(), DOC_ID, API_KEY, ACCESS_TOKEN, env)
+      processSingleInvocation(makeItem(), DOC_ID, API_KEY, ACCESS_TOKEN)
     ).rejects.toThrow('403');
 
     // No further fetch calls after placeholder failure

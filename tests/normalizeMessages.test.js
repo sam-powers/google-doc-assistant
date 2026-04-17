@@ -1,4 +1,4 @@
-import { normalizeMessages } from '../worker/index.js';
+import { normalizeMessages } from '../cloud-run/index.js';
 
 describe('normalizeMessages', () => {
   it('returns [] for an empty array', () => {

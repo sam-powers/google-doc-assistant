@@ -1,4 +1,4 @@
-import { summarizeWithHaiku } from '../worker/index.js';
+import { summarizeWithHaiku } from '../cloud-run/index.js';
 
 describe('summarizeWithHaiku', () => {
   let fetchMock;
@@ -77,6 +77,6 @@ describe('summarizeWithHaiku', () => {
     });
     await summarizeWithHaiku('text', 'key', 100);
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-    expect(body.model).toBe('claude-haiku-4-5');
+    expect(body.model).toBe('claude-haiku-4-5-20251001');
   });
 });
