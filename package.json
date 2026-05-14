@@ -3,9 +3,14 @@
   "type": "module",
   "scripts": {
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "clasp": "clasp",
+    "clasp:check": "clasp status",
+    "clasp:push": "clasp push --force",
+    "deploy:apps-script": "npm test && clasp push --force"
   },
   "devDependencies": {
+    "@google/clasp": "3.3.0",
     "express": "^5.2.1",
     "vitest": "^2.0.0"
   }
