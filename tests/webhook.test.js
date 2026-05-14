@@ -9,16 +9,22 @@ vi.mock('../cloud-run/firestore.js', () => ({
 }));
 
 // Compute a valid HMAC signature matching the Cloud Run verifyHmac() logic.
+// Returns headers AND the canonical raw body string so makeReq can set rawBody.
 function makeHmacHeaders(secret, body) {
   const timestamp = String(Math.floor(Date.now() / 1000));
-  const message   = `${timestamp}.${JSON.stringify(body)}`;
+  const rawBody   = JSON.stringify(body);
+  const message   = `${timestamp}.${rawBody}`;
   const signature = createHmac('sha256', secret).update(message).digest('base64');
-  return { 'x-timestamp': timestamp, 'x-signature': signature };
+  return { headers: { 'x-timestamp': timestamp, 'x-signature': signature }, rawBody };
 }
 
 // Minimal Express-style req/res helpers
-function makeReq(headers = {}, body = {}) {
-  return { headers: Object.fromEntries(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v])), body };
+function makeReq(headers = {}, body = {}, rawBody = undefined) {
+  return {
+    headers: Object.fromEntries(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v])),
+    body,
+    rawBody,
+  };
 }
 
 function makeRes() {
@@ -173,7 +179,8 @@ describe('handleRegister', () => {
 
   it('returns 200 and writes two KV entries on valid registration', async () => {
     const body = { channelToken: 'ct1', channelId: 'ci1', docId: 'di1', anthropicApiKey: 'ak1', activatedAt: 0 };
-    const req = makeReq(makeHmacHeaders(SECRET, body), body);
+    const { headers: hmacHeaders, rawBody } = makeHmacHeaders(SECRET, body);
+    const req = makeReq(hmacHeaders, body, rawBody);
     const res = makeRes();
     await handleRegister(req, res);
     expect(res._status).toBe(200);
@@ -187,7 +194,8 @@ describe('handleRegister', () => {
 
   it('returns 400 when required fields are missing from the body', async () => {
     const body = { channelToken: 'ct1' }; // missing channelId, docId, anthropicApiKey
-    const req = makeReq(makeHmacHeaders(SECRET, body), body);
+    const { headers: hmacHeaders, rawBody } = makeHmacHeaders(SECRET, body);
+    const req = makeReq(hmacHeaders, body, rawBody);
     const res = makeRes();
     await handleRegister(req, res);
     expect(res._status).toBe(400);
@@ -223,7 +231,8 @@ describe('handleUnregister', () => {
 
   it('returns 400 when required fields are missing', async () => {
     const body = { channelToken: 'ct1' }; // missing docId
-    const req = makeReq(makeHmacHeaders(SECRET, body), body);
+    const { headers: hmacHeaders, rawBody } = makeHmacHeaders(SECRET, body);
+    const req = makeReq(hmacHeaders, body, rawBody);
     const res = makeRes();
     await handleUnregister(req, res);
     expect(res._status).toBe(400);
@@ -232,7 +241,8 @@ describe('handleUnregister', () => {
   it('deletes channel and canonical when canonical matches token', async () => {
     vi.mocked(firestore.kvGet).mockResolvedValue('ct1'); // canonical points to this token
     const body = { channelToken: 'ct1', docId: 'di1' };
-    const req = makeReq(makeHmacHeaders(SECRET, body), body);
+    const { headers: hmacHeaders, rawBody } = makeHmacHeaders(SECRET, body);
+    const req = makeReq(hmacHeaders, body, rawBody);
     const res = makeRes();
     await handleUnregister(req, res);
     expect(res._status).toBe(200);
@@ -242,7 +252,8 @@ describe('handleUnregister', () => {
   it('does not delete canonical when it belongs to a different channel (confused deputy guard)', async () => {
     vi.mocked(firestore.kvGet).mockResolvedValue('other-token'); // canonical is someone else's
     const body = { channelToken: 'ct1', docId: 'di1' };
-    const req = makeReq(makeHmacHeaders(SECRET, body), body);
+    const { headers: hmacHeaders, rawBody } = makeHmacHeaders(SECRET, body);
+    const req = makeReq(hmacHeaders, body, rawBody);
     const res = makeRes();
     await handleUnregister(req, res);
     expect(res._status).toBe(200);

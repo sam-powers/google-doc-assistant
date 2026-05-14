@@ -55,7 +55,20 @@ if (process.env.NODE_ENV !== 'test' && !process.env.KMS_KEY_NAME) {
 }
 
 const app = express();
-app.use(express.json());
+
+// Capture raw body string for HMAC-verified routes, then parse JSON manually.
+// express.json() re-serializes req.body which can diverge from the wire bytes
+// (key ordering, spacing), breaking the signature check.
+app.use((req, res, next) => {
+  express.text({ type: 'application/json' })(req, res, (err) => {
+    if (err) return next(err);
+    if (typeof req.body === 'string') {
+      req.rawBody = req.body;
+      try { req.body = JSON.parse(req.body); } catch { req.body = {}; }
+    }
+    next();
+  });
+});
 
 // Tracks pending deferred processDoc calls by docId so we don't stack up
 // multiple redundant calls when several webhooks arrive during a cooldown.
@@ -93,7 +106,7 @@ function verifyHmac(req) {
   const ts  = parseInt(timestamp, 10);
   if (isNaN(ts) || Math.abs(now - ts) > 60) return false;
 
-  const rawBody  = JSON.stringify(req.body);
+  const rawBody  = req.rawBody ?? JSON.stringify(req.body);
   const message  = `${timestamp}.${rawBody}`;
   const expected = createHmac('sha256', secret).update(message).digest('base64');
 
