@@ -1,14 +1,16 @@
 # Ignore files that should not be pushed to Apps Script
+# clasp 3.x uses multimatch: directories need **/dirname/** pattern
+**/node_modules/**
+**/worker/**
+**/cloud-run/**
+**/tests/**
+**/docs/**
+**/.claude/**
 README.md
 *.html.bak
 google_docs_research_agent_brief_v3.html
 .claspignore
 .gitignore
-node_modules/
-worker/**
-cloud-run/**
-tests/**
 vitest.config.js
 package.json
 package-lock.json
-docs/**

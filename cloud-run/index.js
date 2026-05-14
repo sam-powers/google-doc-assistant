@@ -95,24 +95,38 @@ if (process.env.NODE_ENV !== 'test') {
 // to make a leaked secret hard to exploit.
 function verifyHmac(req) {
   const secret = process.env.REGISTER_SECRET;
-  if (!secret) return false;
+  if (!secret) {
+    console.warn('[verifyHmac] REGISTER_SECRET env var is not set');
+    return false;
+  }
 
   const timestamp = req.headers['x-timestamp'] || '';
   const signature = req.headers['x-signature'] || '';
-  if (!timestamp || !signature) return false;
+  if (!timestamp || !signature) {
+    console.warn('[verifyHmac] missing headers: hasTs=' + !!timestamp + ' hasSig=' + !!signature);
+    return false;
+  }
 
   // Reject stale requests (replay protection)
   const now = Math.floor(Date.now() / 1000);
   const ts  = parseInt(timestamp, 10);
-  if (isNaN(ts) || Math.abs(now - ts) > 60) return false;
+  if (isNaN(ts) || Math.abs(now - ts) > 60) {
+    console.warn('[verifyHmac] stale or invalid timestamp: ts=' + ts + ' now=' + now + ' skew=' + (now - ts));
+    return false;
+  }
 
   const rawBody  = req.rawBody ?? JSON.stringify(req.body);
   const message  = `${timestamp}.${rawBody}`;
   const expected = createHmac('sha256', secret).update(message).digest('base64');
 
   try {
-    return timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
-  } catch {
+    const match = timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+    if (!match) {
+      console.warn('[verifyHmac] signature mismatch: rawBodyLen=' + rawBody.length + ' usedRawBody=' + (req.rawBody !== undefined) + ' sigLen=' + signature.length + ' expectedLen=' + expected.length);
+    }
+    return match;
+  } catch (err) {
+    console.warn('[verifyHmac] timingSafeEqual threw: ' + err.message + ' sigLen=' + signature.length + ' expectedLen=' + expected.length);
     return false;
   }
 }
